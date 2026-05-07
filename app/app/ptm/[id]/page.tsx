@@ -6,7 +6,7 @@ import Link from "next/link";
 import {
   ArrowLeft, Info, Check, MessageSquare, X, Send, BookOpen,
   TrendingUp, ArrowRight, Pencil, RotateCcw, CheckCircle2, Printer, AlertCircle, RefreshCw,
-  Star, Target, Lightbulb, Heart, Users, ChevronUp, ChevronDown,
+  Star, Target, Lightbulb, Heart, Users, ChevronUp, ChevronDown, Edit3, Save, XCircle,
 } from "lucide-react";
 import Navbar from "@/app/components/Navbar";
 import StatusBadge from "@/app/components/StatusBadge";
@@ -30,6 +30,11 @@ export default function ReportPreviewPage({ params }: { params: Promise<{ id: st
   const [toast, setToast] = useState<string | null>(null);
   const [localStatus, setLocalStatus] = useState<string | null>(null);
 
+  // ── Editing state ──
+  const [isEditing, setIsEditing] = useState(false);
+  const [editDraft, setEditDraft] = useState<Record<string, unknown>>({});
+  const [saving, setSaving] = useState(false);
+
   async function fetchReport() {
     setLoading(true);
     setError(null);
@@ -44,6 +49,46 @@ export default function ReportPreviewPage({ params }: { params: Promise<{ id: st
   }
 
   useEffect(() => { fetchReport(); }, [id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  function startEditing() {
+    if (!report) return;
+    setEditDraft(JSON.parse(JSON.stringify(report.draft_content)));
+    setIsEditing(true);
+  }
+
+  function cancelEditing() {
+    setIsEditing(false);
+    setEditDraft({});
+  }
+
+  async function saveEdits() {
+    setSaving(true);
+    try {
+      await api.reports.patch(id, editDraft);
+      setReport((prev) => prev ? { ...prev, draft_content: editDraft as unknown as PTMReport["draft_content"] } : prev);
+      setIsEditing(false);
+      setToast("Changes saved successfully.");
+      setTimeout(() => setToast(null), 2500);
+    } catch (e) {
+      setToast(e instanceof Error ? e.message : "Failed to save changes");
+      setTimeout(() => setToast(null), 3000);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function setField(path: string[], value: unknown) {
+    setEditDraft((prev) => {
+      const next = { ...prev };
+      let cur: Record<string, unknown> = next;
+      for (let i = 0; i < path.length - 1; i++) {
+        cur[path[i]] = { ...(cur[path[i]] as Record<string, unknown>) };
+        cur = cur[path[i]] as Record<string, unknown>;
+      }
+      cur[path[path.length - 1]] = value;
+      return next;
+    });
+  }
 
   async function handleApprove() {
     setDelivering(true);
@@ -115,7 +160,7 @@ export default function ReportPreviewPage({ params }: { params: Promise<{ id: st
     );
   }
 
-  const { draft_content: d } = report;
+  const d = (isEditing ? editDraft : report.draft_content) as PTMReport["draft_content"];
   const currentStatus = (localStatus ?? report.status) as typeof report.status;
 
   return (
@@ -178,6 +223,32 @@ export default function ReportPreviewPage({ params }: { params: Promise<{ id: st
           All Reports
         </Link>
 
+        {/* ── Editing banner ── */}
+        {isEditing && (
+          <div className="mb-6 flex items-center justify-between gap-4 bg-[var(--ss-o-50)] border border-[var(--ss-o-200)] rounded-2xl px-5 py-3.5">
+            <div className="flex items-center gap-2.5">
+              <Edit3 size={15} className="text-[var(--ss-o-500)]" />
+              <span className="text-sm font-semibold text-[var(--ss-o-700)]">Editing mode — changes are local until you save</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={cancelEditing}
+                className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-semibold border border-[var(--ss-i-200)] text-[var(--ss-i-600)] hover:bg-[var(--ss-i-100)] transition-colors"
+              >
+                <XCircle size={12} /> Discard
+              </button>
+              <button
+                onClick={saveEdits}
+                disabled={saving}
+                className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-semibold bg-[var(--ss-o-500)] text-white hover:bg-[var(--ss-o-600)] transition-colors disabled:opacity-60"
+              >
+                {saving ? <span className="w-3 h-3 rounded-full border-2 border-white/30 border-t-white animate-spin" /> : <Save size={12} />}
+                {saving ? "Saving…" : "Save Changes"}
+              </button>
+            </div>
+          </div>
+        )}
+
         <div className="flex flex-col lg:flex-row gap-8 items-start">
           {/* ── Main content ── */}
           <div className="flex-1 min-w-0 space-y-4">
@@ -236,63 +307,102 @@ export default function ReportPreviewPage({ params }: { params: Promise<{ id: st
             </InferredBlock>
 
             <InferredBlock title="Overall Performance" icon={<TrendingUp size={15} />} inferred={d.student_performance?.inferred ?? false}>
-              <p className="text-sm text-[var(--ss-i-700)] leading-relaxed">{d.student_performance?.narrative}</p>
+              <EditableText
+                editing={isEditing}
+                value={d.student_performance?.narrative ?? ""}
+                onChange={(v) => setField(["student_performance", "narrative"], v)}
+                rows={5}
+              />
             </InferredBlock>
 
             {/* Confidence Trend */}
             {d.confidence_trend && (
               <InferredBlock title="Confidence Trend" icon={<ChevronUp size={15} />} inferred={d.confidence_trend.inferred ?? false}>
                 <div className="flex items-center gap-2 mb-3">
-                  <span className={`px-3 py-1 rounded-full text-xs font-bold ${
-                    d.confidence_trend.level === "growing"
-                      ? "bg-green-50 text-green-700 border border-green-200"
-                      : d.confidence_trend.level === "steady"
-                      ? "bg-blue-50 text-blue-700 border border-blue-200"
+                  {isEditing ? (
+                    <select
+                      value={d.confidence_trend.level ?? "growing"}
+                      onChange={(e) => setField(["confidence_trend", "level"], e.target.value)}
+                      className="text-xs font-bold px-3 py-1.5 rounded-full border border-[var(--ss-i-200)] bg-white focus:outline-none focus:ring-2 focus:ring-[var(--ss-o-300)]"
+                    >
+                      <option value="growing">📈 Growing</option>
+                      <option value="steady">📊 Steady</option>
+                      <option value="needs_support">🤝 Needs Support</option>
+                    </select>
+                  ) : (
+                    <span className={`px-3 py-1 rounded-full text-xs font-bold ${
+                      d.confidence_trend.level === "growing" ? "bg-green-50 text-green-700 border border-green-200"
+                      : d.confidence_trend.level === "steady" ? "bg-blue-50 text-blue-700 border border-blue-200"
                       : "bg-amber-50 text-amber-700 border border-amber-200"
-                  }`}>
-                    {d.confidence_trend.level === "growing" ? "📈 Growing" : d.confidence_trend.level === "steady" ? "📊 Steady" : "🤝 Needs Support"}
-                  </span>
+                    }`}>
+                      {d.confidence_trend.level === "growing" ? "📈 Growing" : d.confidence_trend.level === "steady" ? "📊 Steady" : "🤝 Needs Support"}
+                    </span>
+                  )}
                 </div>
-                <p className="text-sm text-[var(--ss-i-700)] leading-relaxed">{d.confidence_trend.observations}</p>
+                <EditableText
+                  editing={isEditing}
+                  value={d.confidence_trend.observations ?? ""}
+                  onChange={(v) => setField(["confidence_trend", "observations"], v)}
+                  rows={3}
+                />
               </InferredBlock>
             )}
 
             {/* Strengths */}
             {d.strengths && (
               <InferredBlock title="Key Strengths" icon={<Star size={15} />} inferred={d.strengths.inferred ?? false}>
-                <ul className="space-y-3">
-                  {(d.strengths.items ?? []).map((item: string, i: number) => (
-                    <li key={i} className="flex items-start gap-3 text-sm text-[var(--ss-i-700)]">
-                      <span className="mt-0.5 w-5 h-5 rounded-full bg-[var(--ss-o-100)] flex items-center justify-center shrink-0">
-                        <Star size={10} className="text-[var(--ss-o-500)]" />
-                      </span>
-                      {item}
-                    </li>
-                  ))}
-                </ul>
+                {isEditing ? (
+                  <EditableList
+                    items={d.strengths.items ?? []}
+                    onChange={(v) => setField(["strengths", "items"], v)}
+                    icon={<Star size={10} className="text-[var(--ss-o-500)]" />}
+                    iconBg="bg-[var(--ss-o-100)]"
+                  />
+                ) : (
+                  <ul className="space-y-3">
+                    {(d.strengths.items ?? []).map((item: string, i: number) => (
+                      <li key={i} className="flex items-start gap-3 text-sm text-[var(--ss-i-700)]">
+                        <span className="mt-0.5 w-5 h-5 rounded-full bg-[var(--ss-o-100)] flex items-center justify-center shrink-0"><Star size={10} className="text-[var(--ss-o-500)]" /></span>
+                        {item}
+                      </li>
+                    ))}
+                  </ul>
+                )}
               </InferredBlock>
             )}
 
             {/* Growth Areas */}
             {d.growth_areas && (
               <InferredBlock title="Areas to Grow" icon={<Target size={15} />} inferred={d.growth_areas.inferred ?? false}>
-                <ul className="space-y-3">
-                  {(d.growth_areas.items ?? []).map((item: string, i: number) => (
-                    <li key={i} className="flex items-start gap-3 text-sm text-[var(--ss-i-700)]">
-                      <span className="mt-0.5 w-5 h-5 rounded-full bg-[var(--ss-i-100)] flex items-center justify-center shrink-0">
-                        <Target size={10} className="text-[var(--ss-i-500)]" />
-                      </span>
-                      {item}
-                    </li>
-                  ))}
-                </ul>
+                {isEditing ? (
+                  <EditableList
+                    items={d.growth_areas.items ?? []}
+                    onChange={(v) => setField(["growth_areas", "items"], v)}
+                    icon={<Target size={10} className="text-[var(--ss-i-500)]" />}
+                    iconBg="bg-[var(--ss-i-100)]"
+                  />
+                ) : (
+                  <ul className="space-y-3">
+                    {(d.growth_areas.items ?? []).map((item: string, i: number) => (
+                      <li key={i} className="flex items-start gap-3 text-sm text-[var(--ss-i-700)]">
+                        <span className="mt-0.5 w-5 h-5 rounded-full bg-[var(--ss-i-100)] flex items-center justify-center shrink-0"><Target size={10} className="text-[var(--ss-i-500)]" /></span>
+                        {item}
+                      </li>
+                    ))}
+                  </ul>
+                )}
               </InferredBlock>
             )}
 
             {/* Homework & Effort */}
             {d.homework_and_effort && (
               <InferredBlock title="Homework & Effort" icon={<Pencil size={15} />} inferred={d.homework_and_effort.inferred ?? false}>
-                <p className="text-sm text-[var(--ss-i-700)] leading-relaxed">{d.homework_and_effort.narrative}</p>
+                <EditableText
+                  editing={isEditing}
+                  value={d.homework_and_effort.narrative ?? ""}
+                  onChange={(v) => setField(["homework_and_effort", "narrative"], v)}
+                  rows={3}
+                />
               </InferredBlock>
             )}
 
@@ -302,69 +412,116 @@ export default function ReportPreviewPage({ params }: { params: Promise<{ id: st
                 <div className="flex items-center gap-2 mb-3">
                   <span className="text-2xl">🏆</span>
                   <SectionLabel label="Milestone" />
-                  {(d.milestone_of_month.inferred) && (
-                    <span className="ml-auto text-xs font-semibold text-[var(--ss-o-500)] flex items-center gap-1"><Info size={11} />Inferred</span>
-                  )}
+                  {d.milestone_of_month.inferred && <span className="ml-auto text-xs font-semibold text-[var(--ss-o-500)] flex items-center gap-1"><Info size={11} />Inferred</span>}
                 </div>
-                <p className="text-base font-bold text-[var(--ss-o-700)] mb-2" style={{ fontFamily: "var(--font-jakarta)" }}>
-                  {d.milestone_of_month.title}
-                </p>
-                <p className="text-sm text-[var(--ss-i-700)] leading-relaxed">{d.milestone_of_month.description}</p>
+                {isEditing ? (
+                  <input
+                    value={d.milestone_of_month.title ?? ""}
+                    onChange={(e) => setField(["milestone_of_month", "title"], e.target.value)}
+                    className="w-full text-base font-bold text-[var(--ss-o-700)] bg-white border border-[var(--ss-o-200)] rounded-xl px-3 py-2 mb-2 focus:outline-none focus:ring-2 focus:ring-[var(--ss-o-300)]"
+                    placeholder="Milestone title…"
+                  />
+                ) : (
+                  <p className="text-base font-bold text-[var(--ss-o-700)] mb-2" style={{ fontFamily: "var(--font-jakarta)" }}>{d.milestone_of_month.title}</p>
+                )}
+                <EditableText
+                  editing={isEditing}
+                  value={d.milestone_of_month.description ?? ""}
+                  onChange={(v) => setField(["milestone_of_month", "description"], v)}
+                  rows={3}
+                />
               </div>
             )}
 
             {/* Parent Action Items */}
             {d.parent_action_items && (
               <InferredBlock title="What You Can Do at Home" icon={<Users size={15} />} inferred={d.parent_action_items.inferred ?? false}>
-                <ul className="space-y-3">
-                  {(d.parent_action_items.items ?? []).map((item: string, i: number) => (
-                    <li key={i} className="flex items-start gap-3 text-sm text-[var(--ss-i-700)]">
-                      <span className="mt-0.5 w-5 h-5 rounded-full bg-[var(--ss-o-500)] flex items-center justify-center shrink-0 text-white text-[10px] font-bold">
-                        {i + 1}
-                      </span>
-                      {item}
-                    </li>
-                  ))}
-                </ul>
+                {isEditing ? (
+                  <EditableList
+                    items={d.parent_action_items.items ?? []}
+                    onChange={(v) => setField(["parent_action_items", "items"], v)}
+                    icon={<span className="text-white text-[10px] font-bold">•</span>}
+                    iconBg="bg-[var(--ss-o-500)]"
+                  />
+                ) : (
+                  <ul className="space-y-3">
+                    {(d.parent_action_items.items ?? []).map((item: string, i: number) => (
+                      <li key={i} className="flex items-start gap-3 text-sm text-[var(--ss-i-700)]">
+                        <span className="mt-0.5 w-5 h-5 rounded-full bg-[var(--ss-o-500)] flex items-center justify-center shrink-0 text-white text-[10px] font-bold">
+                          {i + 1}
+                        </span>
+                        {item}
+                      </li>
+                    ))}
+                  </ul>
+                )}
               </InferredBlock>
             )}
 
             {/* Next Steps */}
             <InferredBlock title="Next Steps" icon={<ArrowRight size={15} />} inferred={d.next_steps?.inferred ?? false}>
-              <ul className="space-y-2.5">
-                {(d.next_steps?.topics ?? []).map((topic: string) => (
-                  <li key={topic} className="flex items-start gap-2.5 text-sm text-[var(--ss-i-700)]">
-                    <span className="font-bold text-[var(--ss-o-500)] shrink-0 mt-0.5">→</span>
-                    {topic}
-                  </li>
-                ))}
-              </ul>
+              {isEditing ? (
+                <EditableList
+                  items={d.next_steps?.topics ?? []}
+                  onChange={(v) => setField(["next_steps", "topics"], v)}
+                  icon={<span className="font-bold text-[var(--ss-o-500)] text-xs">→</span>}
+                  iconBg="bg-transparent border-none"
+                />
+              ) : (
+                <ul className="space-y-2.5">
+                  {(d.next_steps?.topics ?? []).map((topic: string) => (
+                    <li key={topic} className="flex items-start gap-2.5 text-sm text-[var(--ss-i-700)]">
+                      <span className="font-bold text-[var(--ss-o-500)] shrink-0 mt-0.5">→</span>
+                      {topic}
+                    </li>
+                  ))}
+                </ul>
+              )}
             </InferredBlock>
 
             {/* Recommended Resources */}
             {d.recommended_resources && (
               <InferredBlock title="Recommended Resources" icon={<Lightbulb size={15} />} inferred={d.recommended_resources.inferred ?? false}>
-                <ul className="space-y-3">
-                  {(d.recommended_resources.items ?? []).map((item: string, i: number) => (
-                    <li key={i} className="flex items-start gap-3 text-sm text-[var(--ss-i-700)]">
-                      <span className="mt-0.5 w-5 h-5 rounded-full bg-[var(--ss-i-100)] flex items-center justify-center shrink-0">
-                        <Lightbulb size={10} className="text-[var(--ss-i-500)]" />
-                      </span>
-                      {item}
-                    </li>
-                  ))}
-                </ul>
+                {isEditing ? (
+                  <EditableList
+                    items={d.recommended_resources.items ?? []}
+                    onChange={(v) => setField(["recommended_resources", "items"], v)}
+                    icon={<Lightbulb size={10} className="text-[var(--ss-i-500)]" />}
+                    iconBg="bg-[var(--ss-i-100)]"
+                  />
+                ) : (
+                  <ul className="space-y-3">
+                    {(d.recommended_resources.items ?? []).map((item: string, i: number) => (
+                      <li key={i} className="flex items-start gap-3 text-sm text-[var(--ss-i-700)]">
+                        <span className="mt-0.5 w-5 h-5 rounded-full bg-[var(--ss-i-100)] flex items-center justify-center shrink-0">
+                          <Lightbulb size={10} className="text-[var(--ss-i-500)]" />
+                        </span>
+                        {item}
+                      </li>
+                    ))}
+                  </ul>
+                )}
               </InferredBlock>
             )}
 
             {/* Encouragement Message */}
-            {d.encouragement_message && (
+            {d.encouragement_message !== undefined && (
               <div className="rounded-2xl border border-[var(--ss-i-200)] bg-white shadow-[var(--ss-shadow)] p-6 md:p-7">
                 <div className="flex items-center gap-2 mb-3">
                   <Heart size={14} className="text-[var(--ss-o-400)]" />
                   <SectionLabel label="A Note for You" />
                 </div>
-                <p className="text-sm text-[var(--ss-i-600)] leading-relaxed italic">&ldquo;{d.encouragement_message}&rdquo;</p>
+                {isEditing ? (
+                  <EditableText
+                    editing={true}
+                    value={typeof d.encouragement_message === "string" ? d.encouragement_message : ""}
+                    onChange={(v) => setField(["encouragement_message"], v)}
+                    rows={3}
+                    italic
+                  />
+                ) : (
+                  <p className="text-sm text-[var(--ss-i-600)] leading-relaxed italic">&ldquo;{d.encouragement_message as string}&rdquo;</p>
+                )}
               </div>
             )}
 
@@ -375,7 +532,7 @@ export default function ReportPreviewPage({ params }: { params: Promise<{ id: st
                 <SectionLabel label="Teacher's Personal Note" />
               </div>
               {(report.teacher_note ?? d.teacher_note) ? (
-                <p className="text-sm text-[var(--ss-i-600)] italic leading-relaxed">&ldquo;{report.teacher_note ?? d.teacher_note}&rdquo;</p>
+                <p className="text-sm text-[var(--ss-i-600)] italic leading-relaxed">&ldquo;{report.teacher_note ?? d.teacher_note as string}&rdquo;</p>
               ) : (
                 <p className="text-sm text-[var(--ss-i-300)] italic">No personal note added yet. You can add one when approving.</p>
               )}
@@ -388,6 +545,35 @@ export default function ReportPreviewPage({ params }: { params: Promise<{ id: st
               <div className="mb-4"><StatusBadge status={currentStatus as typeof report.status} /></div>
               <p className="text-base font-bold text-[var(--ss-i-900)] mb-0.5" style={{ fontFamily: "var(--font-jakarta)" }}>{report.student_name}</p>
               <p className="text-xs text-[var(--ss-i-400)] mb-5">{report.subject} · {formatMonth(report.reporting_month)}</p>
+
+              {/* Edit toggle */}
+              {!isEditing ? (
+                <button
+                  onClick={startEditing}
+                  className="w-full mb-2 py-2.5 rounded-full border border-[var(--ss-i-200)] text-[var(--ss-i-600)] text-sm font-semibold hover:bg-[var(--ss-i-100)] transition-colors flex items-center justify-center gap-2"
+                >
+                  <Edit3 size={14} />
+                  Edit Report
+                </button>
+              ) : (
+                <div className="flex gap-2 mb-2">
+                  <button
+                    onClick={saveEdits}
+                    disabled={saving}
+                    className="flex-1 py-2.5 rounded-full bg-[var(--ss-o-500)] text-white text-xs font-semibold hover:bg-[var(--ss-o-600)] transition-colors flex items-center justify-center gap-1.5 disabled:opacity-60"
+                  >
+                    {saving ? <span className="w-3 h-3 rounded-full border-2 border-white/30 border-t-white animate-spin" /> : <Save size={12} />}
+                    {saving ? "Saving…" : "Save"}
+                  </button>
+                  <button
+                    onClick={cancelEditing}
+                    className="flex-1 py-2.5 rounded-full border border-[var(--ss-i-200)] text-[var(--ss-i-600)] text-xs font-semibold hover:bg-[var(--ss-i-100)] transition-colors flex items-center justify-center gap-1.5"
+                  >
+                    <XCircle size={12} />
+                    Discard
+                  </button>
+                </div>
+              )}
 
               {currentStatus === "pending" ? (
                 <div className="space-y-2">
@@ -474,6 +660,91 @@ function InferredBlock({ title, icon, inferred, children }: { title: string; ico
         )}
       </div>
       {children}
+    </div>
+  );
+}
+
+function EditableText({
+  editing,
+  value,
+  onChange,
+  rows = 4,
+  italic = false,
+}: {
+  editing: boolean;
+  value: string;
+  onChange: (v: string) => void;
+  rows?: number;
+  italic?: boolean;
+}) {
+  if (!editing) {
+    return (
+      <p className={`text-sm text-[var(--ss-i-700)] leading-relaxed ${italic ? "italic" : ""}`}>
+        {value}
+      </p>
+    );
+  }
+  return (
+    <textarea
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      rows={rows}
+      className="w-full px-3 py-2.5 rounded-xl border border-[var(--ss-i-200)] bg-white text-sm text-[var(--ss-i-700)] placeholder:text-[var(--ss-i-300)] focus:outline-none focus:ring-2 focus:ring-[var(--ss-o-300)] focus:border-[var(--ss-o-400)] resize-none transition leading-relaxed"
+    />
+  );
+}
+
+function EditableList({
+  items,
+  onChange,
+  icon,
+  iconBg,
+}: {
+  items: string[];
+  onChange: (v: string[]) => void;
+  icon: React.ReactNode;
+  iconBg: string;
+}) {
+  function updateItem(i: number, val: string) {
+    const next = [...items];
+    next[i] = val;
+    onChange(next);
+  }
+  function removeItem(i: number) {
+    onChange(items.filter((_, idx) => idx !== i));
+  }
+  function addItem() {
+    onChange([...items, ""]);
+  }
+
+  return (
+    <div className="space-y-2">
+      {items.map((item, i) => (
+        <div key={i} className="flex items-start gap-2">
+          <span className={`mt-2.5 w-5 h-5 rounded-full ${iconBg} flex items-center justify-center shrink-0`}>
+            {icon}
+          </span>
+          <input
+            value={item}
+            onChange={(e) => updateItem(i, e.target.value)}
+            className="flex-1 px-3 py-2 rounded-xl border border-[var(--ss-i-200)] bg-white text-sm text-[var(--ss-i-700)] focus:outline-none focus:ring-2 focus:ring-[var(--ss-o-300)] focus:border-[var(--ss-o-400)] transition"
+            placeholder="Enter item…"
+          />
+          <button
+            onClick={() => removeItem(i)}
+            className="mt-1.5 p-1.5 rounded-full hover:bg-red-50 text-[var(--ss-i-300)] hover:text-red-500 transition-colors"
+            title="Remove"
+          >
+            <X size={13} />
+          </button>
+        </div>
+      ))}
+      <button
+        onClick={addItem}
+        className="mt-1 text-xs font-semibold text-[var(--ss-o-500)] hover:text-[var(--ss-o-600)] flex items-center gap-1 transition-colors"
+      >
+        + Add item
+      </button>
     </div>
   );
 }
