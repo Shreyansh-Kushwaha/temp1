@@ -85,6 +85,13 @@ export const api = {
       return apiFetch<PTMReport>(`/api/ptm/reports/${id}`);
     },
 
+    patch(id: string, draft_content: unknown): Promise<{ status: string }> {
+      return apiFetch(`/api/ptm/reports/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ draft_content }),
+      });
+    },
+
     approve(
       id: string,
       teacher_note?: string
