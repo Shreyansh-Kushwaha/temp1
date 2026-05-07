@@ -87,14 +87,28 @@
 body {
   background: var(--ss-bg);
   color: var(--ss-i-700);
-  font-family: var(--ss-font-body);
+  font-family: var(--font-inter), system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  line-height: 1.6;
 }
 
-h1, h2, h3 {
-  font-family: var(--ss-font-display);
+h1, h2, h3, h4 {
+  font-family: var(--font-jakarta), system-ui, sans-serif;
   color: var(--ss-i-900);
+  line-height: 1.2;
+  letter-spacing: -0.02em;
 }
+
+.font-display {
+  font-family: var(--font-jakarta), system-ui, sans-serif;
+}
+
+/* ─── Scrollbar ─── */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--ss-i-300); border-radius: 9999px; }
+::-webkit-scrollbar-thumb:hover { background: var(--ss-i-400); }
 
 /* ─── Motion preference ─── */
 @media (prefers-reduced-motion: reduce) {
