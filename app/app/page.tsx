@@ -3,23 +3,23 @@ import { ArrowRight, Bot, CheckCircle2, ChevronDown, RefreshCw, Sparkles, Zap } 
 
 export default function LandingPage() {
   return (
-    <div className="min-h-screen flex flex-col" style={{ background: "#FFFFFF" }}>
+    <div className="min-h-screen flex flex-col" style={{ background: "#0f0c1a" }}>
       {/* ── Landing Navbar ── */}
-      <header className="sticky top-0 z-50 border-b border-[var(--ss-i-200)] bg-white/90 backdrop-blur-sm">
+      <header className="sticky top-0 z-50" style={{ borderBottom: "1px solid rgba(255,255,255,0.06)", background: "rgba(15,12,26,0.15)", backdropFilter: "blur(16px)" }}>
         <div className="max-w-6xl mx-auto px-6 h-16 flex items-center justify-between">
           <div className="flex items-center gap-2.5">
             <div className="w-8 h-8 rounded-full bg-[var(--ss-o-500)] flex items-center justify-center shadow-[var(--ss-shadow-brand)]">
               <span className="text-white font-bold text-sm" style={{ fontFamily: "var(--font-jakarta)" }}>S</span>
             </div>
             <div className="flex flex-col leading-none">
-              <span className="font-bold text-[var(--ss-i-900)] text-sm" style={{ fontFamily: "var(--font-jakarta)" }}>Super Sheldon</span>
-              <span className="text-[10px] text-[var(--ss-i-400)] font-medium tracking-wide">PTM Agent</span>
+              <span className="font-bold text-sm" style={{ fontFamily: "var(--font-jakarta)", color: "white" }}>Super Sheldon</span>
+              <span className="text-[10px] font-medium tracking-wide" style={{ color: "rgba(255,255,255,0.4)" }}>PTM Agent</span>
             </div>
           </div>
           <Link
             href="/ptm"
-            className="flex items-center gap-1.5 px-4 py-2 rounded-full bg-[var(--ss-o-500)] text-white text-sm font-semibold hover:bg-[var(--ss-o-600)] transition-colors shadow-[var(--ss-shadow-brand)]"
-            style={{ fontFamily: "var(--font-jakarta)" }}
+            className="flex items-center gap-1.5 px-4 py-2 rounded-full text-sm font-semibold transition-colors"
+            style={{ background: "#FF6B1F", color: "white", fontFamily: "var(--font-jakarta)", boxShadow: "0 0 20px rgba(255,107,31,0.3)" }}
           >
             Open App
             <ArrowRight size={14} />
@@ -29,69 +29,152 @@ export default function LandingPage() {
 
       <main className="flex-1">
         {/* ── Hero ── */}
-        <section className="max-w-6xl mx-auto px-6 pt-20 pb-24 text-center">
-          {/* Badge */}
-          <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-[var(--ss-o-50)] border border-[var(--ss-o-200)] text-[var(--ss-o-700)] text-xs font-semibold tracking-wide mb-8">
-            <Sparkles size={12} className="text-[var(--ss-o-500)]" />
-            PTM Reports · Automated
+        <section className="relative overflow-hidden" style={{ background: "linear-gradient(135deg, #0f0c1a 0%, #1a0f2e 40%, #2d1200 100%)", minHeight: "92vh" }}>
+
+          {/* ── 3D background layer ── */}
+          {/* Gradient orbs */}
+          <div className="pointer-events-none absolute inset-0 overflow-hidden">
+            {/* Big orange glow top-right */}
+            <div style={{
+              position: "absolute", top: "-10%", right: "-5%",
+              width: 700, height: 700, borderRadius: "50%",
+              background: "radial-gradient(circle, rgba(255,107,31,0.35) 0%, rgba(255,107,31,0.08) 50%, transparent 70%)",
+              filter: "blur(40px)",
+            }} />
+            {/* Purple glow left */}
+            <div style={{
+              position: "absolute", top: "10%", left: "-10%",
+              width: 500, height: 500, borderRadius: "50%",
+              background: "radial-gradient(circle, rgba(120,60,200,0.25) 0%, transparent 65%)",
+              filter: "blur(50px)",
+            }} />
+            {/* Warm mid glow */}
+            <div style={{
+              position: "absolute", top: "30%", left: "40%",
+              width: 400, height: 400, borderRadius: "50%",
+              background: "radial-gradient(circle, rgba(255,150,50,0.12) 0%, transparent 65%)",
+              filter: "blur(60px)",
+            }} />
+
+            {/* 3D perspective grid floor */}
+            <div style={{
+              position: "absolute", bottom: 0, left: 0, right: 0, height: "55%",
+              backgroundImage: `
+                linear-gradient(rgba(255,107,31,0.18) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(255,107,31,0.18) 1px, transparent 1px)
+              `,
+              backgroundSize: "60px 60px",
+              transform: "perspective(600px) rotateX(55deg)",
+              transformOrigin: "50% 100%",
+              maskImage: "linear-gradient(to top, rgba(0,0,0,0.7) 0%, rgba(0,0,0,0.2) 50%, transparent 100%)",
+              WebkitMaskImage: "linear-gradient(to top, rgba(0,0,0,0.7) 0%, rgba(0,0,0,0.2) 50%, transparent 100%)",
+            }} />
+
+            {/* Floating 3D card 1 */}
+            <div style={{
+              position: "absolute", top: "15%", right: "8%",
+              width: 180, padding: "14px 18px", borderRadius: 16,
+              background: "rgba(255,255,255,0.06)", backdropFilter: "blur(12px)",
+              border: "1px solid rgba(255,255,255,0.12)",
+              boxShadow: "0 20px 60px rgba(0,0,0,0.4)",
+              transform: "rotate(4deg)",
+            }}>
+              <div style={{ fontSize: 10, color: "rgba(255,107,31,0.9)", fontWeight: 700, textTransform: "uppercase", letterSpacing: 2, marginBottom: 6 }}>AI Generated</div>
+              <div style={{ fontSize: 13, color: "white", fontWeight: 600, lineHeight: 1.4 }}>Arjun&apos;s Progress Report</div>
+              <div style={{ marginTop: 8, height: 4, borderRadius: 4, background: "rgba(255,255,255,0.1)" }}>
+                <div style={{ height: 4, width: "82%", borderRadius: 4, background: "linear-gradient(90deg, #FF6B1F, #ff9a56)" }} />
+              </div>
+              <div style={{ marginTop: 4, fontSize: 10, color: "rgba(255,255,255,0.4)" }}>Attendance 82%</div>
+            </div>
+
+            {/* Floating 3D card 2 */}
+            <div style={{
+              position: "absolute", top: "42%", right: "13%",
+              width: 155, padding: "12px 16px", borderRadius: 14,
+              background: "rgba(255,107,31,0.12)", backdropFilter: "blur(12px)",
+              border: "1px solid rgba(255,107,31,0.25)",
+              boxShadow: "0 16px 40px rgba(0,0,0,0.35)",
+              transform: "rotate(-3deg)",
+            }}>
+              <div style={{ fontSize: 10, color: "rgba(255,107,31,0.8)", fontWeight: 700, marginBottom: 5 }}>✓ Approved</div>
+              <div style={{ fontSize: 12, color: "rgba(255,255,255,0.85)", lineHeight: 1.4 }}>Delivered via email & WhatsApp</div>
+            </div>
+
+            {/* Floating dot cluster */}
+            <svg style={{ position: "absolute", top: "8%", left: "5%", opacity: 0.25 }} width="120" height="120" viewBox="0 0 120 120">
+              {Array.from({ length: 36 }, (_, i) => (
+                <circle key={i} cx={(i % 6) * 22 + 5} cy={Math.floor(i / 6) * 22 + 5} r="2.5" fill="#FF6B1F" />
+              ))}
+            </svg>
           </div>
 
-          <h1
-            className="text-5xl md:text-6xl lg:text-7xl font-extrabold text-[var(--ss-i-900)] mb-6 leading-tight"
-            style={{ fontFamily: "var(--font-jakarta)", letterSpacing: "-0.03em" }}
-          >
-            AI-written reports.
-            <br />
-            <span className="text-[var(--ss-o-500)]">Approved by teachers.</span>
-            <br />
-            Delivered to parents.
-          </h1>
+          {/* ── Hero text content ── */}
+          <div className="relative z-10 max-w-6xl mx-auto px-6 pt-28 pb-32 text-center">
+            {/* Badge */}
+            <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full border text-xs font-semibold tracking-wide mb-8"
+              style={{ background: "rgba(255,107,31,0.12)", borderColor: "rgba(255,107,31,0.3)", color: "rgba(255,150,80,0.95)" }}>
+              <Sparkles size={12} />
+              PTM Reports · Automated by AI
+            </div>
 
-          <p className="text-lg text-[var(--ss-i-500)] max-w-2xl mx-auto mb-10 leading-relaxed">
-            Replace the 8-page manual PTM template with a focused 1-page AI-generated report.
-            The teacher reviews and approves, then the report is delivered to parents automatically
-            via email and WhatsApp — all in under a minute.
-          </p>
-
-          <div className="flex flex-col sm:flex-row items-center justify-center gap-4 mb-12">
-            <Link
-              href="/ptm"
-              className="flex items-center gap-2 px-6 py-3 rounded-full bg-[var(--ss-o-500)] text-white font-semibold hover:bg-[var(--ss-o-600)] transition-all shadow-[var(--ss-shadow-brand)] hover:shadow-lg text-base"
-              style={{ fontFamily: "var(--font-jakarta)" }}
+            <h1
+              className="text-5xl md:text-6xl lg:text-7xl font-extrabold mb-6 leading-tight"
+              style={{ fontFamily: "var(--font-jakarta)", letterSpacing: "-0.03em", color: "#ffffff" }}
             >
-              Open the App
-              <ArrowRight size={16} />
-            </Link>
-            <a
-              href="#how-it-works"
-              className="flex items-center gap-1.5 text-[var(--ss-i-500)] hover:text-[var(--ss-i-700)] text-sm font-medium transition-colors"
-            >
-              See how it works
-              <ChevronDown size={15} />
-            </a>
-          </div>
+              AI-written reports.
+              <br />
+              <span style={{ color: "#FF6B1F" }}>Approved by teachers.</span>
+              <br />
+              Delivered to parents.
+            </h1>
 
-          {/* Stats row */}
-          <div className="flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-sm text-[var(--ss-i-400)]">
-            <span className="flex items-center gap-1.5">
-              <span className="w-1.5 h-1.5 rounded-full bg-[var(--ss-o-400)]" />
-              5 active students
-            </span>
-            <span className="text-[var(--ss-i-300)]">·</span>
-            <span className="flex items-center gap-1.5">
-              <span className="w-1.5 h-1.5 rounded-full bg-[var(--ss-o-400)]" />
-              2 teachers
-            </span>
-            <span className="text-[var(--ss-i-300)]">·</span>
-            <span className="flex items-center gap-1.5">
-              <span className="w-1.5 h-1.5 rounded-full bg-[var(--ss-o-400)]" />
-              ~30 sec per report
-            </span>
-            <span className="text-[var(--ss-i-300)]">·</span>
-            <span className="flex items-center gap-1.5">
-              <span className="w-1.5 h-1.5 rounded-full bg-[var(--ss-o-400)]" />
-              Runs on the 1st of every month
-            </span>
+            <p className="text-lg max-w-2xl mx-auto mb-10 leading-relaxed" style={{ color: "rgba(255,255,255,0.6)" }}>
+              Replace the 8-page manual PTM template with a focused AI-generated report.
+              The teacher reviews and approves in one click — then the report is delivered to parents
+              via email and WhatsApp automatically.
+            </p>
+
+            <div className="flex flex-col sm:flex-row items-center justify-center gap-4 mb-14">
+              <Link
+                href="/ptm"
+                className="flex items-center gap-2 px-7 py-3.5 rounded-full font-semibold transition-all text-base"
+                style={{ background: "#FF6B1F", color: "white", boxShadow: "0 0 40px rgba(255,107,31,0.45)", fontFamily: "var(--font-jakarta)" }}
+              >
+                Open the App
+                <ArrowRight size={16} />
+              </Link>
+              <a
+                href="#how-it-works"
+                className="flex items-center gap-1.5 text-sm font-medium transition-colors"
+                style={{ color: "rgba(255,255,255,0.5)" }}
+              >
+                See how it works
+                <ChevronDown size={15} />
+              </a>
+            </div>
+
+            {/* Stats row */}
+            <div className="flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-sm" style={{ color: "rgba(255,255,255,0.35)" }}>
+              <span className="flex items-center gap-1.5">
+                <span className="w-1.5 h-1.5 rounded-full" style={{ background: "#FF6B1F" }} />
+                500+ reports generated
+              </span>
+              <span style={{ color: "rgba(255,255,255,0.15)" }}>·</span>
+              <span className="flex items-center gap-1.5">
+                <span className="w-1.5 h-1.5 rounded-full" style={{ background: "#FF6B1F" }} />
+                65+ teachers
+              </span>
+              <span style={{ color: "rgba(255,255,255,0.15)" }}>·</span>
+              <span className="flex items-center gap-1.5">
+                <span className="w-1.5 h-1.5 rounded-full" style={{ background: "#FF6B1F" }} />
+                ~30 sec per report
+              </span>
+              <span style={{ color: "rgba(255,255,255,0.15)" }}>·</span>
+              <span className="flex items-center gap-1.5">
+                <span className="w-1.5 h-1.5 rounded-full" style={{ background: "#FF6B1F" }} />
+                Gemini 2.5 Flash powered
+              </span>
+            </div>
           </div>
         </section>
 
