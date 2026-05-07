@@ -5,6 +5,7 @@ backend/**/__pycache__/
 backend/*.pyc
 backend/ptm.db
 backend/.env
+backend/.temp
 
 # Next.js
 app/.next/
