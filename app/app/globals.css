@@ -1,0 +1,105 @@
+@import "tailwindcss";
+
+/* ─── Super Sheldon Design Tokens ─── */
+@theme inline {
+  /* Orange scale */
+  --color-ss-orange-50: #FFF1E6;
+  --color-ss-orange-100: #FFE0C7;
+  --color-ss-orange-200: #FFC089;
+  --color-ss-orange-300: #FFA14B;
+  --color-ss-orange-400: #FF8526;
+  --color-ss-orange-500: #FF6B1F;
+  --color-ss-orange-600: #E85A12;
+  --color-ss-orange-700: #C24808;
+  --color-ss-orange-800: #8F3505;
+  --color-ss-orange-900: #5C2203;
+
+  /* Ink (neutral) scale */
+  --color-ss-ink-100: #F2F4F7;
+  --color-ss-ink-200: #E5E8EE;
+  --color-ss-ink-300: #C4C9D2;
+  --color-ss-ink-400: #8A91A1;
+  --color-ss-ink-500: #5B6271;
+  --color-ss-ink-700: #2A2E36;
+  --color-ss-ink-900: #0F1115;
+
+  /* Background */
+  --color-ss-bg-0: #FFFFFF;
+  --color-ss-bg-50: #FFF8F2;
+
+  /* Status */
+  --color-ss-success: #16A34A;
+  --color-ss-warning: #F59E0B;
+  --color-ss-error: #DC2626;
+  --color-ss-info: #2563EB;
+
+  /* Accent */
+  --color-ss-purple: #7C3AED;
+  --color-ss-teal: #0EA5A4;
+  --color-ss-pink: #EC4899;
+  --color-ss-yellow: #FACC15;
+
+  /* Typography */
+  --font-display: "Plus Jakarta Sans", Inter, system-ui, sans-serif;
+  --font-body: Inter, system-ui, sans-serif;
+
+  /* Border radius */
+  --radius-ss-sm: 6px;
+  --radius-ss-md: 10px;
+  --radius-ss-lg: 12px;
+  --radius-ss-xl: 16px;
+  --radius-ss-2xl: 24px;
+  --radius-ss-full: 9999px;
+
+  /* Shadows */
+  --shadow-ss: 0 4px 12px rgba(15,17,21,.06);
+  --shadow-ss-lg: 0 12px 32px rgba(15,17,21,.08);
+  --shadow-ss-brand: 0 8px 24px rgba(255,107,31,.25);
+}
+
+/* ─── CSS Custom Properties (for components that need direct access) ─── */
+:root {
+  --ss-o-50: #FFF1E6; --ss-o-100: #FFE0C7; --ss-o-200: #FFC089;
+  --ss-o-300: #FFA14B; --ss-o-400: #FF8526; --ss-o-500: #FF6B1F;
+  --ss-o-600: #E85A12; --ss-o-700: #C24808;
+
+  --ss-i-100: #F2F4F7; --ss-i-200: #E5E8EE; --ss-i-300: #C4C9D2;
+  --ss-i-400: #8A91A1; --ss-i-500: #5B6271; --ss-i-700: #2A2E36;
+  --ss-i-900: #0F1115;
+
+  --ss-bg: #FFF8F2;
+  --ss-card: #FFFFFF;
+
+  --ss-success: #16A34A; --ss-warning: #F59E0B;
+  --ss-error: #DC2626;   --ss-info: #2563EB;
+
+  --ss-radius: 12px;
+  --ss-radius-pill: 9999px;
+  --ss-shadow: 0 4px 12px rgba(15,17,21,.06);
+  --ss-shadow-lg: 0 12px 32px rgba(15,17,21,.08);
+  --ss-shadow-brand: 0 8px 24px rgba(255,107,31,.25);
+
+  --ss-font-display: "Plus Jakarta Sans", Inter, system-ui, sans-serif;
+  --ss-font-body: Inter, system-ui, sans-serif;
+}
+
+/* ─── Base styles ─── */
+body {
+  background: var(--ss-bg);
+  color: var(--ss-i-700);
+  font-family: var(--ss-font-body);
+  -webkit-font-smoothing: antialiased;
+}
+
+h1, h2, h3 {
+  font-family: var(--ss-font-display);
+  color: var(--ss-i-900);
+}
+
+/* ─── Motion preference ─── */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
