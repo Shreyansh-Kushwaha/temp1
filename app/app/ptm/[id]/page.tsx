@@ -1,63 +1,114 @@
 "use client";
 
-import { use, useState } from "react";
+import { use, useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
-  ArrowLeft,
-  Info,
-  Check,
-  MessageSquare,
-  X,
-  Send,
-  BookOpen,
-  TrendingUp,
-  ArrowRight,
-  Pencil,
-  RotateCcw,
-  CheckCircle2,
-  Printer,
+  ArrowLeft, Info, Check, MessageSquare, X, Send, BookOpen,
+  TrendingUp, ArrowRight, Pencil, RotateCcw, CheckCircle2, Printer, AlertCircle, RefreshCw,
+  Star, Target, Lightbulb, Heart, Users, ChevronUp, ChevronDown,
 } from "lucide-react";
 import Navbar from "@/app/components/Navbar";
 import StatusBadge from "@/app/components/StatusBadge";
-import { MOCK_REPORTS, MOCK_ESCALATED } from "@/app/lib/mock-data";
-
-const ALL_REPORTS = [...MOCK_REPORTS, ...MOCK_ESCALATED];
+import { type PTMReport } from "@/app/lib/mock-data";
+import { api } from "@/app/lib/api";
 
 function formatMonth(dateStr: string) {
   return new Date(dateStr).toLocaleDateString("en-IN", { month: "long", year: "numeric" });
 }
 
-export default function ReportPreviewPage({
-  params,
-}: {
-  params: Promise<{ id: string }>;
-}) {
+export default function ReportPreviewPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const router = useRouter();
-  const report = ALL_REPORTS.find((r) => r.id === id);
 
+  const [report, setReport] = useState<PTMReport | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [showModal, setShowModal] = useState(false);
   const [teacherNote, setTeacherNote] = useState("");
   const [delivering, setDelivering] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [localStatus, setLocalStatus] = useState<string | null>(null);
 
-  if (!report) {
+  async function fetchReport() {
+    setLoading(true);
+    setError(null);
+    try {
+      const data = await api.reports.get(id);
+      setReport(data);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to load report");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => { fetchReport(); }, [id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function handleApprove() {
+    setDelivering(true);
+    try {
+      await api.reports.approve(id, teacherNote || undefined);
+      setLocalStatus("approved");
+      setShowModal(false);
+      setToast("Report approved and delivered to parents via email and WhatsApp.");
+      setTimeout(() => { setToast(null); router.push("/ptm"); }, 2500);
+    } catch (e) {
+      setToast(e instanceof Error ? e.message : "Failed to approve report");
+      setTimeout(() => setToast(null), 3000);
+    } finally {
+      setDelivering(false);
+    }
+  }
+
+  // ── Loading skeleton ──
+  if (loading) {
+    return (
+      <div className="min-h-screen" style={{ background: "var(--ss-bg)" }}>
+        <Navbar />
+        <main className="max-w-6xl mx-auto px-4 md:px-8 py-8">
+          <div className="h-4 w-24 rounded bg-[var(--ss-i-200)] animate-pulse mb-6" />
+          <div className="flex flex-col lg:flex-row gap-8">
+            <div className="flex-1 space-y-4">
+              {[100, 80, 120, 90, 80].map((h, i) => (
+                <div key={i} className={`h-${h === 100 ? 28 : h === 80 ? 24 : 32} bg-white rounded-2xl border border-[var(--ss-i-200)] animate-pulse`} style={{ height: `${h}px` }} />
+              ))}
+            </div>
+            <div className="w-full lg:w-72 shrink-0">
+              <div className="h-64 bg-white rounded-2xl border border-[var(--ss-i-200)] animate-pulse" />
+            </div>
+          </div>
+        </main>
+      </div>
+    );
+  }
+
+  // ── Error state ──
+  if (error || !report) {
     return (
       <div className="min-h-screen" style={{ background: "var(--ss-bg)" }}>
         <Navbar />
         <main className="max-w-3xl mx-auto px-4 py-16">
           <div className="bg-white rounded-2xl border-l-4 border-l-[var(--ss-error)] border border-[var(--ss-i-200)] p-6 shadow-[var(--ss-shadow)]">
-            <h2 className="font-bold text-[var(--ss-i-900)] mb-1" style={{ fontFamily: "var(--font-jakarta)" }}>
-              Report not found
-            </h2>
-            <p className="text-sm text-[var(--ss-i-500)] mb-4">
-              This report doesn&apos;t exist or may have been removed.
-            </p>
-            <Link href="/ptm" className="text-sm font-semibold text-[var(--ss-o-600)] hover:underline">
-              ← Back to all reports
-            </Link>
+            <div className="flex items-start gap-3 mb-4">
+              <AlertCircle size={18} className="text-[var(--ss-error)] mt-0.5 shrink-0" />
+              <div>
+                <h2 className="font-bold text-[var(--ss-i-900)] mb-1" style={{ fontFamily: "var(--font-jakarta)" }}>
+                  Report not found
+                </h2>
+                <p className="text-sm text-[var(--ss-i-500)]">{error ?? "This report doesn't exist or may have been removed."}</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-3">
+              <Link href="/ptm" className="text-sm font-semibold text-[var(--ss-o-600)] hover:underline">
+                ← Back to all reports
+              </Link>
+              {error && (
+                <button onClick={fetchReport} className="flex items-center gap-1.5 text-sm font-semibold text-[var(--ss-i-500)] hover:text-[var(--ss-i-700)]">
+                  <RefreshCw size={13} /> Retry
+                </button>
+              )}
+            </div>
           </div>
         </main>
       </div>
@@ -67,26 +118,13 @@ export default function ReportPreviewPage({
   const { draft_content: d } = report;
   const currentStatus = (localStatus ?? report.status) as typeof report.status;
 
-  async function handleApprove() {
-    setDelivering(true);
-    await new Promise((r) => setTimeout(r, 1400));
-    setDelivering(false);
-    setLocalStatus("approved");
-    setShowModal(false);
-    setToast("Report approved and delivered to parents via email and WhatsApp.");
-    setTimeout(() => {
-      setToast(null);
-      router.push("/ptm");
-    }, 2500);
-  }
-
   return (
     <div className="min-h-screen" style={{ background: "var(--ss-bg)" }}>
       <Navbar />
 
       {/* Toast */}
       {toast && (
-        <div className="fixed top-20 left-1/2 -translate-x-1/2 z-50 bg-green-600 text-white px-5 py-3 rounded-full shadow-lg text-sm font-semibold flex items-center gap-2 animate-pulse">
+        <div className="fixed top-20 left-1/2 -translate-x-1/2 z-50 bg-green-600 text-white px-5 py-3 rounded-full shadow-lg text-sm font-semibold flex items-center gap-2">
           <CheckCircle2 size={15} />
           {toast}
         </div>
@@ -95,21 +133,12 @@ export default function ReportPreviewPage({
       {/* Approve modal */}
       {showModal && (
         <div className="fixed inset-0 z-40 flex items-end sm:items-center justify-center p-4">
-          <div
-            className="absolute inset-0 bg-[var(--ss-i-900)]/40 backdrop-blur-sm"
-            onClick={() => setShowModal(false)}
-          />
+          <div className="absolute inset-0 bg-[var(--ss-i-900)]/40 backdrop-blur-sm" onClick={() => setShowModal(false)} />
           <div className="relative w-full max-w-md bg-white rounded-2xl shadow-[var(--ss-shadow-lg)] p-6">
-            <button
-              onClick={() => setShowModal(false)}
-              className="absolute top-4 right-4 p-1 rounded-full hover:bg-[var(--ss-i-100)] transition-colors"
-            >
+            <button onClick={() => setShowModal(false)} className="absolute top-4 right-4 p-1 rounded-full hover:bg-[var(--ss-i-100)] transition-colors">
               <X size={17} className="text-[var(--ss-i-400)]" />
             </button>
-            <h2
-              className="text-lg font-bold text-[var(--ss-i-900)] mb-1"
-              style={{ fontFamily: "var(--font-jakarta)" }}
-            >
+            <h2 className="text-lg font-bold text-[var(--ss-i-900)] mb-1" style={{ fontFamily: "var(--font-jakarta)" }}>
               Approve Report
             </h2>
             <p className="text-sm text-[var(--ss-i-400)] mb-5">
@@ -130,21 +159,12 @@ export default function ReportPreviewPage({
                 style={{ fontFamily: "var(--font-jakarta)" }}
               >
                 {delivering ? (
-                  <>
-                    <span className="w-4 h-4 rounded-full border-2 border-white/30 border-t-white animate-spin" />
-                    Sending…
-                  </>
+                  <><span className="w-4 h-4 rounded-full border-2 border-white/30 border-t-white animate-spin" />Sending…</>
                 ) : (
-                  <>
-                    <Send size={14} />
-                    Send Report
-                  </>
+                  <><Send size={14} />Send Report</>
                 )}
               </button>
-              <button
-                onClick={() => setShowModal(false)}
-                className="px-4 py-2.5 text-sm text-[var(--ss-i-500)] hover:text-[var(--ss-i-700)] font-medium"
-              >
+              <button onClick={() => setShowModal(false)} className="px-4 py-2.5 text-sm text-[var(--ss-i-500)] hover:text-[var(--ss-i-700)] font-medium">
                 Cancel
               </button>
             </div>
@@ -153,11 +173,7 @@ export default function ReportPreviewPage({
       )}
 
       <main className="max-w-6xl mx-auto px-4 md:px-8 py-8">
-        {/* Back link */}
-        <Link
-          href="/ptm"
-          className="inline-flex items-center gap-1.5 text-sm text-[var(--ss-i-400)] hover:text-[var(--ss-i-700)] transition-colors mb-6"
-        >
+        <Link href="/ptm" className="inline-flex items-center gap-1.5 text-sm text-[var(--ss-i-400)] hover:text-[var(--ss-i-700)] transition-colors mb-6">
           <ArrowLeft size={14} />
           All Reports
         </Link>
@@ -165,43 +181,34 @@ export default function ReportPreviewPage({
         <div className="flex flex-col lg:flex-row gap-8 items-start">
           {/* ── Main content ── */}
           <div className="flex-1 min-w-0 space-y-4">
-            {/* Report Header block */}
+            {/* Header block */}
             <div className="bg-white rounded-2xl border border-[var(--ss-i-200)] shadow-[var(--ss-shadow)] p-6 md:p-7">
               <div className="flex items-start justify-between mb-5">
                 <div className="flex items-center gap-2">
                   <div className="w-7 h-7 rounded-full bg-[var(--ss-o-500)] flex items-center justify-center shrink-0">
                     <span className="text-white font-extrabold text-[11px]" style={{ fontFamily: "var(--font-jakarta)" }}>S</span>
                   </div>
-                  <div>
-                    <p className="text-xs font-bold text-[var(--ss-i-400)] uppercase tracking-widest leading-none">Super Sheldon</p>
-                  </div>
+                  <p className="text-xs font-bold text-[var(--ss-i-400)] uppercase tracking-widest">Super Sheldon</p>
                 </div>
                 <span className="px-2.5 py-1 rounded-full bg-[var(--ss-o-50)] border border-[var(--ss-o-200)] text-xs font-bold text-[var(--ss-o-700)] tracking-wide uppercase">
                   PTM Report
                 </span>
               </div>
-
-              <h1
-                className="text-3xl font-extrabold text-[var(--ss-i-900)] mb-3"
-                style={{ fontFamily: "var(--font-jakarta)", letterSpacing: "-0.02em" }}
-              >
+              <h1 className="text-3xl font-extrabold text-[var(--ss-i-900)] mb-3" style={{ fontFamily: "var(--font-jakarta)", letterSpacing: "-0.02em" }}>
                 {d.header.student_name}
               </h1>
-
               <div className="flex flex-wrap items-center gap-3 text-sm text-[var(--ss-i-500)]">
-                <span className="px-2.5 py-1 rounded-lg bg-[var(--ss-i-100)] text-xs font-semibold text-[var(--ss-i-700)]">
-                  {d.header.subject}
-                </span>
+                <span className="px-2.5 py-1 rounded-lg bg-[var(--ss-i-100)] text-xs font-semibold text-[var(--ss-i-700)]">{d.header.subject}</span>
                 <span>Teacher: <strong className="text-[var(--ss-i-700)]">{d.header.teacher_name}</strong></span>
                 <span className="text-[var(--ss-i-300)]">·</span>
-                <span>{d.header.reporting_month}</span>
+                <span>{d.header.reporting_period ?? d.header.reporting_month}</span>
               </div>
             </div>
 
             {/* Sessions & Attendance */}
             <div className="bg-white rounded-2xl border border-[var(--ss-i-200)] shadow-[var(--ss-shadow)] p-6 md:p-7">
               <SectionLabel label="Sessions & Attendance" />
-              <div className="grid grid-cols-3 gap-3 mb-5">
+              <div className="grid grid-cols-3 gap-3 mb-5 mt-4">
                 <MiniStatCard label="Total Classes" value={d.sessions_attendance.total_classes} />
                 <MiniStatCard label="Attendance" value={`${d.sessions_attendance.attendance_pct}%`} highlight />
                 <MiniStatCard label="No-shows" value={d.sessions_attendance.no_shows} />
@@ -209,27 +216,17 @@ export default function ReportPreviewPage({
               <div>
                 <div className="flex items-center justify-between text-xs text-[var(--ss-i-400)] mb-1.5">
                   <span>Attendance rate</span>
-                  <span className="font-semibold text-[var(--ss-i-700)]">
-                    {d.sessions_attendance.attendance_pct}%
-                  </span>
+                  <span className="font-semibold text-[var(--ss-i-700)]">{d.sessions_attendance.attendance_pct}%</span>
                 </div>
                 <div className="w-full h-2 rounded-full bg-[var(--ss-i-100)] overflow-hidden">
-                  <div
-                    className="h-2 rounded-full bg-[var(--ss-o-500)] transition-all"
-                    style={{ width: `${d.sessions_attendance.attendance_pct}%` }}
-                  />
+                  <div className="h-2 rounded-full bg-[var(--ss-o-500)] transition-all" style={{ width: `${d.sessions_attendance.attendance_pct}%` }} />
                 </div>
               </div>
             </div>
 
-            {/* Learning Coverage */}
-            <InferredBlock
-              title="Learning Coverage"
-              icon={<BookOpen size={15} />}
-              inferred={d.learning_coverage.inferred}
-            >
+            <InferredBlock title="Learning Coverage" icon={<BookOpen size={15} />} inferred={d.learning_coverage?.inferred ?? false}>
               <ul className="space-y-2.5">
-                {d.learning_coverage.topics.map((topic) => (
+                {(d.learning_coverage?.topics ?? []).map((topic: string) => (
                   <li key={topic} className="flex items-start gap-2.5 text-sm text-[var(--ss-i-700)]">
                     <span className="mt-1.5 w-1.5 h-1.5 rounded-full bg-[var(--ss-o-400)] shrink-0" />
                     {topic}
@@ -238,25 +235,104 @@ export default function ReportPreviewPage({
               </ul>
             </InferredBlock>
 
-            {/* Student Performance */}
-            <InferredBlock
-              title="Student Performance"
-              icon={<TrendingUp size={15} />}
-              inferred={d.student_performance.inferred}
-            >
-              <p className="text-sm text-[var(--ss-i-700)] leading-relaxed">
-                {d.student_performance.narrative}
-              </p>
+            <InferredBlock title="Overall Performance" icon={<TrendingUp size={15} />} inferred={d.student_performance?.inferred ?? false}>
+              <p className="text-sm text-[var(--ss-i-700)] leading-relaxed">{d.student_performance?.narrative}</p>
             </InferredBlock>
 
+            {/* Confidence Trend */}
+            {d.confidence_trend && (
+              <InferredBlock title="Confidence Trend" icon={<ChevronUp size={15} />} inferred={d.confidence_trend.inferred ?? false}>
+                <div className="flex items-center gap-2 mb-3">
+                  <span className={`px-3 py-1 rounded-full text-xs font-bold ${
+                    d.confidence_trend.level === "growing"
+                      ? "bg-green-50 text-green-700 border border-green-200"
+                      : d.confidence_trend.level === "steady"
+                      ? "bg-blue-50 text-blue-700 border border-blue-200"
+                      : "bg-amber-50 text-amber-700 border border-amber-200"
+                  }`}>
+                    {d.confidence_trend.level === "growing" ? "📈 Growing" : d.confidence_trend.level === "steady" ? "📊 Steady" : "🤝 Needs Support"}
+                  </span>
+                </div>
+                <p className="text-sm text-[var(--ss-i-700)] leading-relaxed">{d.confidence_trend.observations}</p>
+              </InferredBlock>
+            )}
+
+            {/* Strengths */}
+            {d.strengths && (
+              <InferredBlock title="Key Strengths" icon={<Star size={15} />} inferred={d.strengths.inferred ?? false}>
+                <ul className="space-y-3">
+                  {(d.strengths.items ?? []).map((item: string, i: number) => (
+                    <li key={i} className="flex items-start gap-3 text-sm text-[var(--ss-i-700)]">
+                      <span className="mt-0.5 w-5 h-5 rounded-full bg-[var(--ss-o-100)] flex items-center justify-center shrink-0">
+                        <Star size={10} className="text-[var(--ss-o-500)]" />
+                      </span>
+                      {item}
+                    </li>
+                  ))}
+                </ul>
+              </InferredBlock>
+            )}
+
+            {/* Growth Areas */}
+            {d.growth_areas && (
+              <InferredBlock title="Areas to Grow" icon={<Target size={15} />} inferred={d.growth_areas.inferred ?? false}>
+                <ul className="space-y-3">
+                  {(d.growth_areas.items ?? []).map((item: string, i: number) => (
+                    <li key={i} className="flex items-start gap-3 text-sm text-[var(--ss-i-700)]">
+                      <span className="mt-0.5 w-5 h-5 rounded-full bg-[var(--ss-i-100)] flex items-center justify-center shrink-0">
+                        <Target size={10} className="text-[var(--ss-i-500)]" />
+                      </span>
+                      {item}
+                    </li>
+                  ))}
+                </ul>
+              </InferredBlock>
+            )}
+
+            {/* Homework & Effort */}
+            {d.homework_and_effort && (
+              <InferredBlock title="Homework & Effort" icon={<Pencil size={15} />} inferred={d.homework_and_effort.inferred ?? false}>
+                <p className="text-sm text-[var(--ss-i-700)] leading-relaxed">{d.homework_and_effort.narrative}</p>
+              </InferredBlock>
+            )}
+
+            {/* Milestone */}
+            {d.milestone_of_month && (
+              <div className="rounded-2xl border border-[var(--ss-o-200)] bg-gradient-to-br from-[var(--ss-o-50)] to-white shadow-[var(--ss-shadow)] p-6 md:p-7">
+                <div className="flex items-center gap-2 mb-3">
+                  <span className="text-2xl">🏆</span>
+                  <SectionLabel label="Milestone" />
+                  {(d.milestone_of_month.inferred) && (
+                    <span className="ml-auto text-xs font-semibold text-[var(--ss-o-500)] flex items-center gap-1"><Info size={11} />Inferred</span>
+                  )}
+                </div>
+                <p className="text-base font-bold text-[var(--ss-o-700)] mb-2" style={{ fontFamily: "var(--font-jakarta)" }}>
+                  {d.milestone_of_month.title}
+                </p>
+                <p className="text-sm text-[var(--ss-i-700)] leading-relaxed">{d.milestone_of_month.description}</p>
+              </div>
+            )}
+
+            {/* Parent Action Items */}
+            {d.parent_action_items && (
+              <InferredBlock title="What You Can Do at Home" icon={<Users size={15} />} inferred={d.parent_action_items.inferred ?? false}>
+                <ul className="space-y-3">
+                  {(d.parent_action_items.items ?? []).map((item: string, i: number) => (
+                    <li key={i} className="flex items-start gap-3 text-sm text-[var(--ss-i-700)]">
+                      <span className="mt-0.5 w-5 h-5 rounded-full bg-[var(--ss-o-500)] flex items-center justify-center shrink-0 text-white text-[10px] font-bold">
+                        {i + 1}
+                      </span>
+                      {item}
+                    </li>
+                  ))}
+                </ul>
+              </InferredBlock>
+            )}
+
             {/* Next Steps */}
-            <InferredBlock
-              title="Next Steps"
-              icon={<ArrowRight size={15} />}
-              inferred={d.next_steps.inferred}
-            >
+            <InferredBlock title="Next Steps" icon={<ArrowRight size={15} />} inferred={d.next_steps?.inferred ?? false}>
               <ul className="space-y-2.5">
-                {d.next_steps.topics.slice(0, 4).map((topic) => (
+                {(d.next_steps?.topics ?? []).map((topic: string) => (
                   <li key={topic} className="flex items-start gap-2.5 text-sm text-[var(--ss-i-700)]">
                     <span className="font-bold text-[var(--ss-o-500)] shrink-0 mt-0.5">→</span>
                     {topic}
@@ -265,20 +341,43 @@ export default function ReportPreviewPage({
               </ul>
             </InferredBlock>
 
+            {/* Recommended Resources */}
+            {d.recommended_resources && (
+              <InferredBlock title="Recommended Resources" icon={<Lightbulb size={15} />} inferred={d.recommended_resources.inferred ?? false}>
+                <ul className="space-y-3">
+                  {(d.recommended_resources.items ?? []).map((item: string, i: number) => (
+                    <li key={i} className="flex items-start gap-3 text-sm text-[var(--ss-i-700)]">
+                      <span className="mt-0.5 w-5 h-5 rounded-full bg-[var(--ss-i-100)] flex items-center justify-center shrink-0">
+                        <Lightbulb size={10} className="text-[var(--ss-i-500)]" />
+                      </span>
+                      {item}
+                    </li>
+                  ))}
+                </ul>
+              </InferredBlock>
+            )}
+
+            {/* Encouragement Message */}
+            {d.encouragement_message && (
+              <div className="rounded-2xl border border-[var(--ss-i-200)] bg-white shadow-[var(--ss-shadow)] p-6 md:p-7">
+                <div className="flex items-center gap-2 mb-3">
+                  <Heart size={14} className="text-[var(--ss-o-400)]" />
+                  <SectionLabel label="A Note for You" />
+                </div>
+                <p className="text-sm text-[var(--ss-i-600)] leading-relaxed italic">&ldquo;{d.encouragement_message}&rdquo;</p>
+              </div>
+            )}
+
             {/* Teacher's Note */}
             <div className="bg-white rounded-2xl border border-[var(--ss-i-200)] shadow-[var(--ss-shadow)] p-6 md:p-7">
               <div className="flex items-center gap-2 mb-3">
                 <Pencil size={14} className="text-[var(--ss-i-400)]" />
-                <SectionLabel label="Teacher's Note" />
+                <SectionLabel label="Teacher's Personal Note" />
               </div>
               {(report.teacher_note ?? d.teacher_note) ? (
-                <p className="text-sm text-[var(--ss-i-600)] italic leading-relaxed">
-                  &ldquo;{report.teacher_note ?? d.teacher_note}&rdquo;
-                </p>
+                <p className="text-sm text-[var(--ss-i-600)] italic leading-relaxed">&ldquo;{report.teacher_note ?? d.teacher_note}&rdquo;</p>
               ) : (
-                <p className="text-sm text-[var(--ss-i-300)] italic">
-                  No personal note added yet. You can add one when approving.
-                </p>
+                <p className="text-sm text-[var(--ss-i-300)] italic">No personal note added yet. You can add one when approving.</p>
               )}
             </div>
           </div>
@@ -286,19 +385,9 @@ export default function ReportPreviewPage({
           {/* ── Sidebar ── */}
           <aside className="w-full lg:w-72 shrink-0 space-y-3 lg:sticky lg:top-24">
             <div className="bg-white rounded-2xl border border-[var(--ss-i-200)] shadow-[var(--ss-shadow)] p-5">
-              <div className="mb-4">
-                <StatusBadge status={currentStatus as typeof report.status} />
-              </div>
-
-              <p
-                className="text-base font-bold text-[var(--ss-i-900)] mb-0.5"
-                style={{ fontFamily: "var(--font-jakarta)" }}
-              >
-                {report.student_name}
-              </p>
-              <p className="text-xs text-[var(--ss-i-400)] mb-5">
-                {report.subject} · {formatMonth(report.reporting_month)}
-              </p>
+              <div className="mb-4"><StatusBadge status={currentStatus as typeof report.status} /></div>
+              <p className="text-base font-bold text-[var(--ss-i-900)] mb-0.5" style={{ fontFamily: "var(--font-jakarta)" }}>{report.student_name}</p>
+              <p className="text-xs text-[var(--ss-i-400)] mb-5">{report.subject} · {formatMonth(report.reporting_month)}</p>
 
               {currentStatus === "pending" ? (
                 <div className="space-y-2">
@@ -326,21 +415,13 @@ export default function ReportPreviewPage({
 
               <div className="mt-5 pt-4 border-t border-[var(--ss-i-100)] space-y-3">
                 <div className="flex items-center justify-between text-xs">
-                  <span className="text-[var(--ss-i-400)] flex items-center gap-1.5">
-                    <RotateCcw size={11} />
-                    Regenerations
-                  </span>
-                  <span className="font-semibold text-[var(--ss-i-700)]">
-                    {report.regeneration_count} / 2
-                  </span>
+                  <span className="text-[var(--ss-i-400)] flex items-center gap-1.5"><RotateCcw size={11} />Regenerations</span>
+                  <span className="font-semibold text-[var(--ss-i-700)]">{report.regeneration_count} / 2</span>
                 </div>
-
                 {d._inferred_fields.length > 0 && (
                   <div className="flex items-start gap-1.5 p-2.5 rounded-lg bg-[var(--ss-o-50)] border border-[var(--ss-o-100)]">
                     <Info size={11} className="mt-0.5 text-[var(--ss-o-500)] shrink-0" />
-                    <span className="text-xs text-[var(--ss-o-700)] leading-relaxed">
-                      Highlighted sections were inferred — verify before approving.
-                    </span>
+                    <span className="text-xs text-[var(--ss-o-700)] leading-relaxed">Highlighted sections were inferred — verify before approving.</span>
                   </div>
                 )}
               </div>
@@ -361,64 +442,30 @@ export default function ReportPreviewPage({
 }
 
 function SectionLabel({ label }: { label: string }) {
-  return (
-    <h2 className="text-xs font-bold text-[var(--ss-i-500)] uppercase tracking-widest">{label}</h2>
-  );
+  return <h2 className="text-xs font-bold text-[var(--ss-i-500)] uppercase tracking-widest">{label}</h2>;
 }
 
-function MiniStatCard({
-  label,
-  value,
-  highlight,
-}: {
-  label: string;
-  value: string | number;
-  highlight?: boolean;
-}) {
+function MiniStatCard({ label, value, highlight }: { label: string; value: string | number; highlight?: boolean }) {
   return (
     <div className={`text-center p-4 rounded-xl ${highlight ? "bg-[var(--ss-o-50)] border border-[var(--ss-o-200)]" : "bg-[var(--ss-i-100)]"}`}>
-      <div
-        className={`text-2xl font-extrabold ${highlight ? "text-[var(--ss-o-600)]" : "text-[var(--ss-i-900)]"}`}
-        style={{ fontFamily: "var(--font-jakarta)" }}
-      >
-        {value}
-      </div>
+      <div className={`text-2xl font-extrabold ${highlight ? "text-[var(--ss-o-600)]" : "text-[var(--ss-i-900)]"}`} style={{ fontFamily: "var(--font-jakarta)" }}>{value}</div>
       <div className="text-xs text-[var(--ss-i-400)] mt-1">{label}</div>
     </div>
   );
 }
 
-function InferredBlock({
-  title,
-  icon,
-  inferred,
-  children,
-}: {
-  title: string;
-  icon: React.ReactNode;
-  inferred: boolean;
-  children: React.ReactNode;
-}) {
+function InferredBlock({ title, icon, inferred, children }: { title: string; icon: React.ReactNode; inferred: boolean; children: React.ReactNode }) {
   return (
-    <div
-      className={`rounded-2xl border shadow-[var(--ss-shadow)] p-6 md:p-7 ${
-        inferred
-          ? "bg-[var(--ss-o-50)] border-[var(--ss-o-200)]"
-          : "bg-white border-[var(--ss-i-200)]"
-      }`}
-    >
+    <div className={`rounded-2xl border shadow-[var(--ss-shadow)] p-6 md:p-7 ${inferred ? "bg-[var(--ss-o-50)] border-[var(--ss-o-200)]" : "bg-white border-[var(--ss-i-200)]"}`}>
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-2">
-          <span className={inferred ? "text-[var(--ss-o-500)]" : "text-[var(--ss-i-400)]"}>
-            {icon}
-          </span>
+          <span className={inferred ? "text-[var(--ss-o-500)]" : "text-[var(--ss-i-400)]"}>{icon}</span>
           <SectionLabel label={title} />
         </div>
         {inferred && (
           <div className="group relative">
             <div className="flex items-center gap-1 text-xs font-semibold text-[var(--ss-o-600)] cursor-help">
-              <Info size={12} />
-              <span className="hidden sm:inline">Inferred</span>
+              <Info size={12} /><span className="hidden sm:inline">Inferred</span>
             </div>
             <div className="absolute right-0 bottom-full mb-2 w-56 p-2.5 bg-[var(--ss-i-900)] text-white text-xs rounded-xl opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10 shadow-lg leading-relaxed">
               Agent inferred this from class summaries — verify before approving.
