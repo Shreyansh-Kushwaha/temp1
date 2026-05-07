@@ -68,6 +68,21 @@ class ApproveBody(BaseModel):
     teacher_note: str | None = None
 
 
+class GenerateFromSessionsBody(BaseModel):
+    student_id: str
+    student_name: str
+    teacher_name: str
+    subject: str
+    session_ids: list[str]
+    engagement_level: str | None = None
+    concept_understanding: str | None = None
+    homework_effort: str | None = None
+    specific_highlights: str | None = None
+    improvement_areas: str | None = None
+    parent_note: str | None = None
+    next_month_goals: list[str] | None = None
+
+
 class QuestionnaireBody(BaseModel):
     engagement_rating: int | None = None
     concept_rating: int | None = None
@@ -79,8 +94,92 @@ class QuestionnaireBody(BaseModel):
 
 # ── Endpoints ───────────────────────────────────────────────────────────────
 
+@router.get("/students")
+async def list_students_for_teacher(teacher_name: str):
+    return await wise_service.list_students_for_teacher(teacher_name)
+
+
+@router.get("/students/{student_id}/sessions")
+async def get_student_sessions(student_id: str):
+    return await wise_service.get_student_sessions(student_id)
+
+
+@router.post("/reports/from-sessions")
+async def generate_report_from_sessions(body: GenerateFromSessionsBody):
+    from datetime import date as _date
+    all_sessions = await wise_service.get_student_sessions(body.student_id)
+
+    selected = [s for s in all_sessions if s["session_id"] in body.session_ids] if body.session_ids else all_sessions
+
+    # Derive reporting period from the selected sessions' dates
+    dates = [s["date"] for s in selected if s.get("date")]
+    if dates:
+        earliest, latest = min(dates), max(dates)
+        reporting_period = f"{earliest} – {latest}"
+        month = f"{earliest[:7]}-01"
+    else:
+        today = _date.today()
+        month = f"{today.year}-{today.month:02d}-01"
+        reporting_period = month
+
+    wise_data = {
+        "name": body.student_name,
+        "grade": "",
+        "teacher_name": body.teacher_name,
+        "teacher_id": "",
+        "subject": body.subject,
+        "month": reporting_period,
+        "total_classes": len(selected),
+        "attendance_pct": 100,
+        "no_shows": 0,
+        "summaries": [s["transcript_excerpt"] for s in selected if s.get("transcript_excerpt")],
+        "session_dates": dates,
+        "feedback": {},
+    }
+
+    overrides: dict = {}
+    if body.engagement_level:
+        overrides["engagement"] = body.engagement_level
+    if body.concept_understanding:
+        overrides["concept_understanding"] = body.concept_understanding
+    if body.homework_effort:
+        overrides["homework_effort"] = body.homework_effort
+    if body.specific_highlights:
+        overrides["specific_highlights"] = body.specific_highlights
+    if body.improvement_areas:
+        overrides["improvement_areas"] = body.improvement_areas
+    if body.parent_note:
+        overrides["parent_note"] = body.parent_note
+    if body.next_month_goals:
+        overrides["next_month_topics"] = body.next_month_goals
+
+    draft = await claude_service.generate_report(wise_data, overrides or None)
+
+    db = await get_db()
+    try:
+        ts = now_iso()
+        report_id = str(uuid.uuid4())
+        await db.execute(
+            """INSERT INTO ptm_reports
+               (id, student_id, teacher_id, student_name, subject, reporting_month,
+                status, draft_content, regeneration_count, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, 0, ?, ?)""",
+            [report_id, body.student_id, "", body.student_name, body.subject,
+             month, json.dumps(draft), ts, ts],
+        )
+        await db.commit()
+        return {"report_id": report_id, "status": "pending", "draft_content": draft}
+    finally:
+        await db.close()
+
+
+@router.get("/teachers")
+async def list_teachers():
+    return await wise_service.list_all_teachers()
+
+
 @router.get("/reports")
-async def list_reports(status: str | None = None, teacher_id: str | None = None):
+async def list_reports(status: str | None = None, teacher_id: str | None = None, teacher_name: str | None = None):
     db = await get_db()
     try:
         clauses, params = ["deleted_at IS NULL"], []
@@ -90,6 +189,9 @@ async def list_reports(status: str | None = None, teacher_id: str | None = None)
         if teacher_id:
             clauses.append("teacher_id = ?")
             params.append(teacher_id)
+        if teacher_name:
+            clauses.append("json_extract(draft_content, '$.header.teacher_name') = ?")
+            params.append(teacher_name)
         where = " AND ".join(clauses)
         async with db.execute(f"SELECT * FROM ptm_reports WHERE {where} ORDER BY created_at DESC", params) as cur:
             rows = await cur.fetchall()
