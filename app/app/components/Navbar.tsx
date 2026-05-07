@@ -2,10 +2,11 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { FileText, AlertTriangle } from "lucide-react";
+import { FileText, AlertTriangle, Clock, PlusCircle } from "lucide-react";
 
 const NAV_LINKS = [
-  { href: "/ptm", label: "Reports", Icon: FileText },
+  { href: "/ptm", label: "Generate", Icon: PlusCircle },
+  { href: "/ptm/pending", label: "Pending", Icon: Clock },
   { href: "/ptm/escalated", label: "Escalated", Icon: AlertTriangle },
 ];
 
@@ -13,7 +14,7 @@ export default function Navbar() {
   const pathname = usePathname();
 
   const isActive = (href: string) => {
-    if (href === "/ptm") return pathname === "/ptm";
+    if (href === "/ptm") return pathname === "/ptm" || pathname.startsWith("/ptm/students");
     return pathname.startsWith(href);
   };
 
