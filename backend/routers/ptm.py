@@ -68,6 +68,10 @@ class ApproveBody(BaseModel):
     teacher_note: str | None = None
 
 
+class PatchDraftBody(BaseModel):
+    draft_content: dict
+
+
 class GenerateFromSessionsBody(BaseModel):
     student_id: str
     student_name: str
@@ -209,6 +213,25 @@ async def get_report(report_id: str):
         if not row:
             raise HTTPException(status_code=404, detail="Report not found")
         return row_to_report(row)
+    finally:
+        await db.close()
+
+
+@router.patch("/reports/{report_id}")
+async def patch_report(report_id: str, body: PatchDraftBody):
+    db = await get_db()
+    try:
+        async with db.execute("SELECT id FROM ptm_reports WHERE id = ? AND deleted_at IS NULL", [report_id]) as cur:
+            row = await cur.fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Report not found")
+        ts = now_iso()
+        await db.execute(
+            "UPDATE ptm_reports SET draft_content=?, updated_at=? WHERE id=?",
+            [json.dumps(body.draft_content), ts, report_id],
+        )
+        await db.commit()
+        return {"status": "saved"}
     finally:
         await db.close()
 
