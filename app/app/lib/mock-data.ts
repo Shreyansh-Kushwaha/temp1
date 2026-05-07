@@ -11,6 +11,7 @@ export interface ReportDraft {
     subject: string;
     teacher_name: string;
     reporting_month: string;
+    reporting_period?: string;
   };
   sessions_attendance: {
     total_classes: number;
@@ -25,10 +26,41 @@ export interface ReportDraft {
     narrative: string;
     inferred: boolean;
   };
+  confidence_trend?: {
+    level: "growing" | "steady" | "needs_support";
+    observations: string;
+    inferred: boolean;
+  };
+  strengths?: {
+    items: string[];
+    inferred: boolean;
+  };
+  growth_areas?: {
+    items: string[];
+    inferred: boolean;
+  };
+  homework_and_effort?: {
+    narrative: string;
+    inferred: boolean;
+  };
+  milestone_of_month?: {
+    title: string;
+    description: string;
+    inferred: boolean;
+  };
+  parent_action_items?: {
+    items: string[];
+    inferred: boolean;
+  };
   next_steps: {
     topics: string[];
     inferred: boolean;
   };
+  recommended_resources?: {
+    items: string[];
+    inferred: boolean;
+  };
+  encouragement_message?: string;
   teacher_note: string | null;
   _inferred_fields: string[];
 }
