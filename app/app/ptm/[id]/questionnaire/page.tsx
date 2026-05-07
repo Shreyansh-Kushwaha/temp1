@@ -3,9 +3,22 @@
 import { use, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft, Tag, X } from "lucide-react";
+import { ArrowLeft, ArrowRight, X, ChevronRight } from "lucide-react";
 import Navbar from "@/app/components/Navbar";
-import { MOCK_REPORTS, getQuestionsForReport, type QuestionnaireQuestion } from "@/app/lib/mock-data";
+import { MOCK_REPORTS, MOCK_ESCALATED, getQuestionsForReport } from "@/app/lib/mock-data";
+
+const ALL_REPORTS = [...MOCK_REPORTS, ...MOCK_ESCALATED];
+
+const SUGGESTED_TOPICS = [
+  "Quadratic formula",
+  "Graphing parabolas",
+  "Polynomials",
+  "Analytical writing",
+  "Dictionaries and sets",
+  "Endgame basics",
+  "Geometric proofs",
+  "Advanced vocabulary",
+];
 
 export default function QuestionnairePage({
   params,
@@ -14,43 +27,63 @@ export default function QuestionnairePage({
 }) {
   const { id } = use(params);
   const router = useRouter();
-  const report = MOCK_REPORTS.find((r) => r.id === id);
+  const report = ALL_REPORTS.find((r) => r.id === id);
 
+  const [step, setStep] = useState(0);
   const [engagement, setEngagement] = useState<number | null>(null);
   const [concept, setConcept] = useState<number | null>(null);
   const [application, setApplication] = useState<number | null>(null);
   const [topicsCorrection, setTopicsCorrection] = useState("");
   const [nextMonthTopics, setNextMonthTopics] = useState<string[]>([]);
-  const [topicInput, setTopicInput] = useState("");
   const [freeForm, setFreeForm] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
   if (!report) {
     return (
-      <div className="min-h-screen flex items-center justify-center" style={{ background: "var(--ss-bg)" }}>
-        <p className="text-[var(--ss-i-500)]">Report not found.</p>
+      <div className="min-h-screen" style={{ background: "var(--ss-bg)" }}>
+        <Navbar />
+        <main className="max-w-xl mx-auto px-4 py-16">
+          <div className="bg-white rounded-2xl border-l-4 border-l-[var(--ss-error)] border border-[var(--ss-i-200)] p-6 shadow-[var(--ss-shadow)]">
+            <h2 className="font-bold text-[var(--ss-i-900)] mb-1" style={{ fontFamily: "var(--font-jakarta)" }}>
+              Report not found
+            </h2>
+            <Link href="/ptm" className="text-sm font-semibold text-[var(--ss-o-600)] hover:underline mt-3 block">
+              ← Back to all reports
+            </Link>
+          </div>
+        </main>
       </div>
     );
   }
 
   const questions = getQuestionsForReport(report);
+  const currentQ = questions[step];
+  const isLast = step === questions.length - 1;
+  const studentFirstName = report.draft_content.header.student_name.split(" ")[0];
 
-  function addTopic() {
-    const t = topicInput.trim();
-    if (t && nextMonthTopics.length < 4 && !nextMonthTopics.includes(t)) {
-      setNextMonthTopics((prev) => [...prev, t]);
-      setTopicInput("");
+  function toggleTopic(topic: string) {
+    setNextMonthTopics((prev) =>
+      prev.includes(topic)
+        ? prev.filter((t) => t !== topic)
+        : prev.length < 4
+        ? [...prev, topic]
+        : prev
+    );
+  }
+
+  function canProceed() {
+    switch (currentQ.type) {
+      case "dropdown_engagement": return engagement !== null;
+      case "dropdown_concept": return concept !== null;
+      case "dropdown_application": return application !== null;
+      case "topics_correction": return topicsCorrection.trim().length > 0;
+      case "next_month_plan": return true;
+      case "free_form": return true;
     }
   }
 
-  function removeTopic(topic: string) {
-    setNextMonthTopics((prev) => prev.filter((t) => t !== topic));
-  }
-
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
+  async function handleSubmit() {
     setSubmitting(true);
-    // Simulate regeneration delay
     await new Promise((r) => setTimeout(r, 2000));
     router.push(`/ptm/${id}`);
   }
@@ -59,194 +92,220 @@ export default function QuestionnairePage({
     <div className="min-h-screen" style={{ background: "var(--ss-bg)" }}>
       <Navbar />
 
-      <main className="max-w-2xl mx-auto px-4 md:px-8 py-8">
+      <main className="max-w-xl mx-auto px-4 py-8">
+        {/* Back */}
         <Link
           href={`/ptm/${id}`}
-          className="flex items-center gap-1.5 text-sm text-[var(--ss-i-500)] hover:text-[var(--ss-i-900)] transition-colors mb-6"
+          className="inline-flex items-center gap-1.5 text-sm text-[var(--ss-i-400)] hover:text-[var(--ss-i-700)] transition-colors mb-6"
         >
-          <ArrowLeft size={15} />
-          Back to report
+          <ArrowLeft size={14} />
+          Back to Report
         </Link>
 
+        {/* Header */}
         <div className="mb-8">
-          <p className="text-xs font-semibold uppercase tracking-widest text-[var(--ss-o-600)] mb-1">
+          <p className="text-xs font-semibold uppercase tracking-widest text-[var(--ss-o-600)] mb-1.5">
             Request Changes
           </p>
-          <h1 className="text-2xl font-bold text-[var(--ss-i-900)]" style={{ fontFamily: "var(--ss-font-display)" }}>
-            Help us fix {report.draft_content.header.student_name}&apos;s report
+          <h1
+            className="text-2xl font-extrabold text-[var(--ss-i-900)] mb-2"
+            style={{ fontFamily: "var(--font-jakarta)" }}
+          >
+            Help us improve the report
           </h1>
-          <p className="mt-1.5 text-sm text-[var(--ss-i-500)]">
-            Answer {questions.length} quick question{questions.length > 1 ? "s" : ""} — only the sections the agent was unsure about.
+          <p className="text-sm text-[var(--ss-i-400)]">
+            Answering a few questions about {studentFirstName} will help Claude regenerate a more accurate report.
           </p>
         </div>
 
-        <form onSubmit={handleSubmit} className="space-y-4">
-          {questions.map((q, i) => (
-            <QuestionCard key={i} index={i} total={questions.length} question={q}>
-              {q.type === "dropdown_engagement" && (
-                <DropdownField
-                  options={q.options!}
-                  value={engagement}
-                  onChange={setEngagement}
-                />
-              )}
-              {q.type === "dropdown_concept" && (
-                <DropdownField
-                  options={q.options!}
-                  value={concept}
-                  onChange={setConcept}
-                />
-              )}
-              {q.type === "dropdown_application" && (
-                <DropdownField
-                  options={q.options!}
-                  value={application}
-                  onChange={setApplication}
-                />
-              )}
-              {q.type === "topics_correction" && (
-                <textarea
-                  value={topicsCorrection}
-                  onChange={(e) => setTopicsCorrection(e.target.value)}
-                  rows={2}
-                  placeholder="e.g. Quadratic formula, completing the square, discriminant"
-                  className="w-full px-4 py-3 rounded-[10px] border border-[var(--ss-i-300)] bg-white text-[var(--ss-i-900)] placeholder-[var(--ss-i-400)] focus:border-[var(--ss-o-500)] focus:ring-2 focus:ring-[var(--ss-o-200)] outline-none transition text-sm resize-none"
-                />
-              )}
-              {q.type === "next_month_plan" && (
-                <div>
-                  <div className="flex gap-2 mb-3">
-                    <input
-                      type="text"
-                      value={topicInput}
-                      onChange={(e) => setTopicInput(e.target.value)}
-                      onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), addTopic())}
-                      placeholder="Type a topic and press Enter"
-                      disabled={nextMonthTopics.length >= 4}
-                      className="flex-1 px-4 py-2.5 rounded-[10px] border border-[var(--ss-i-300)] bg-white text-[var(--ss-i-900)] placeholder-[var(--ss-i-400)] focus:border-[var(--ss-o-500)] focus:ring-2 focus:ring-[var(--ss-o-200)] outline-none transition text-sm disabled:opacity-50"
-                    />
-                    <button
-                      type="button"
-                      onClick={addTopic}
-                      disabled={!topicInput.trim() || nextMonthTopics.length >= 4}
-                      className="flex items-center gap-1 px-4 py-2.5 rounded-full bg-[var(--ss-o-500)] text-white text-sm font-semibold hover:bg-[var(--ss-o-600)] disabled:opacity-40 transition-all"
+        {/* Progress bar */}
+        <div className="mb-6">
+          <div className="flex items-center justify-between text-xs text-[var(--ss-i-400)] mb-2">
+            <span>Question {step + 1} of {questions.length}</span>
+            <span>{Math.round(((step + 1) / questions.length) * 100)}% complete</span>
+          </div>
+          <div className="w-full h-1.5 rounded-full bg-[var(--ss-i-200)] overflow-hidden">
+            <div
+              className="h-1.5 rounded-full bg-[var(--ss-o-500)] transition-all duration-300"
+              style={{ width: `${((step + 1) / questions.length) * 100}%` }}
+            />
+          </div>
+        </div>
+
+        {/* Question card */}
+        <div className="bg-white rounded-2xl border border-[var(--ss-i-200)] shadow-[var(--ss-shadow)] p-6 md:p-7 mb-4">
+          <h2
+            className="text-lg font-bold text-[var(--ss-i-900)] mb-1.5"
+            style={{ fontFamily: "var(--font-jakarta)" }}
+          >
+            {currentQ.label}
+          </h2>
+          {currentQ.description && (
+            <p className="text-xs text-[var(--ss-i-400)] mb-5 leading-relaxed">{currentQ.description}</p>
+          )}
+          {!currentQ.description && <div className="mb-5" />}
+
+          {/* Dropdown types */}
+          {(currentQ.type === "dropdown_engagement" ||
+            currentQ.type === "dropdown_concept" ||
+            currentQ.type === "dropdown_application") && (
+            <div className="space-y-2">
+              {currentQ.options!.map((opt) => {
+                const val =
+                  currentQ.type === "dropdown_engagement"
+                    ? engagement
+                    : currentQ.type === "dropdown_concept"
+                    ? concept
+                    : application;
+                const setter =
+                  currentQ.type === "dropdown_engagement"
+                    ? setEngagement
+                    : currentQ.type === "dropdown_concept"
+                    ? setConcept
+                    : setApplication;
+                const selected = val === opt.value;
+                return (
+                  <label
+                    key={opt.value}
+                    className={`flex items-center gap-3 p-3.5 rounded-xl border cursor-pointer transition-all ${
+                      selected
+                        ? "border-[var(--ss-o-400)] bg-[var(--ss-o-50)] shadow-sm"
+                        : "border-[var(--ss-i-200)] hover:border-[var(--ss-o-200)] hover:bg-[var(--ss-o-50)]/50"
+                    }`}
+                  >
+                    <div
+                      className={`w-4 h-4 rounded-full border-2 flex items-center justify-center shrink-0 transition-colors ${
+                        selected ? "border-[var(--ss-o-500)] bg-[var(--ss-o-500)]" : "border-[var(--ss-i-300)]"
+                      }`}
                     >
-                      <Tag size={14} />
-                      Add
-                    </button>
-                  </div>
-                  {nextMonthTopics.length > 0 && (
-                    <div className="flex flex-wrap gap-2">
-                      {nextMonthTopics.map((topic) => (
-                        <span
-                          key={topic}
-                          className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-[var(--ss-o-50)] text-[var(--ss-o-700)] border border-[var(--ss-o-200)] text-xs font-semibold"
-                        >
-                          {topic}
-                          <button
-                            type="button"
-                            onClick={() => removeTopic(topic)}
-                            className="hover:text-[var(--ss-o-900)] transition-colors"
-                          >
-                            <X size={11} />
-                          </button>
-                        </span>
-                      ))}
+                      {selected && <div className="w-1.5 h-1.5 rounded-full bg-white" />}
                     </div>
-                  )}
-                  <p className="text-xs text-[var(--ss-i-400)] mt-2">{nextMonthTopics.length}/4 topics added</p>
+                    <span className="text-sm text-[var(--ss-i-700)]">{opt.label}</span>
+                    <input
+                      type="radio"
+                      className="sr-only"
+                      checked={selected}
+                      onChange={() => setter(opt.value)}
+                    />
+                  </label>
+                );
+              })}
+            </div>
+          )}
+
+          {/* Topics correction */}
+          {currentQ.type === "topics_correction" && (
+            <textarea
+              value={topicsCorrection}
+              onChange={(e) => setTopicsCorrection(e.target.value)}
+              rows={3}
+              placeholder="e.g. Quadratic formula, completing the square, discriminant and nature of roots"
+              className="w-full px-4 py-3 rounded-xl border border-[var(--ss-i-200)] bg-white text-sm text-[var(--ss-i-700)] placeholder:text-[var(--ss-i-300)] focus:outline-none focus:ring-2 focus:ring-[var(--ss-o-300)] focus:border-[var(--ss-o-400)] resize-none transition"
+            />
+          )}
+
+          {/* Next month plan — tag multi-select */}
+          {currentQ.type === "next_month_plan" && (
+            <div>
+              <p className="text-xs text-[var(--ss-i-400)] mb-3">
+                Select up to 4 topics. ({nextMonthTopics.length}/4 selected)
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {SUGGESTED_TOPICS.map((topic) => {
+                  const selected = nextMonthTopics.includes(topic);
+                  const disabled = !selected && nextMonthTopics.length >= 4;
+                  return (
+                    <button
+                      key={topic}
+                      type="button"
+                      onClick={() => toggleTopic(topic)}
+                      disabled={disabled}
+                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold border transition-all ${
+                        selected
+                          ? "bg-[var(--ss-o-500)] text-white border-[var(--ss-o-500)] shadow-sm"
+                          : disabled
+                          ? "bg-[var(--ss-i-100)] text-[var(--ss-i-300)] border-[var(--ss-i-200)] cursor-not-allowed"
+                          : "bg-white text-[var(--ss-i-600)] border-[var(--ss-i-200)] hover:border-[var(--ss-o-300)] hover:bg-[var(--ss-o-50)]"
+                      }`}
+                    >
+                      {selected && <X size={10} />}
+                      {topic}
+                    </button>
+                  );
+                })}
+              </div>
+              {nextMonthTopics.length > 0 && (
+                <div className="mt-4 p-3 rounded-xl bg-[var(--ss-i-100)] text-xs text-[var(--ss-i-500)]">
+                  <strong className="text-[var(--ss-i-700)]">Selected:</strong> {nextMonthTopics.join(", ")}
                 </div>
               )}
-              {q.type === "free_form" && (
-                <textarea
-                  value={freeForm}
-                  onChange={(e) => setFreeForm(e.target.value)}
-                  rows={3}
-                  placeholder="Optional — leave blank if everything else looks accurate."
-                  className="w-full px-4 py-3 rounded-[10px] border border-[var(--ss-i-300)] bg-white text-[var(--ss-i-900)] placeholder-[var(--ss-i-400)] focus:border-[var(--ss-o-500)] focus:ring-2 focus:ring-[var(--ss-o-200)] outline-none transition text-sm resize-none"
-                />
+            </div>
+          )}
+
+          {/* Free form */}
+          {currentQ.type === "free_form" && (
+            <div>
+              <textarea
+                value={freeForm}
+                onChange={(e) => setFreeForm(e.target.value)}
+                rows={4}
+                placeholder="Leave blank if everything looks correct — this question is optional."
+                className="w-full px-4 py-3 rounded-xl border border-[var(--ss-i-200)] bg-white text-sm text-[var(--ss-i-700)] placeholder:text-[var(--ss-i-300)] focus:outline-none focus:ring-2 focus:ring-[var(--ss-o-300)] focus:border-[var(--ss-o-400)] resize-none transition"
+              />
+              <p className="text-xs text-[var(--ss-i-300)] mt-2">Optional</p>
+            </div>
+          )}
+        </div>
+
+        {/* Navigation */}
+        <div className="flex items-center gap-3">
+          {step > 0 && (
+            <button
+              type="button"
+              onClick={() => setStep((s) => s - 1)}
+              className="flex items-center gap-1.5 px-4 py-2.5 rounded-full border border-[var(--ss-i-200)] text-sm text-[var(--ss-i-600)] font-medium hover:bg-white hover:border-[var(--ss-i-300)] transition-colors"
+            >
+              <ArrowLeft size={14} />
+              Previous
+            </button>
+          )}
+
+          <div className="flex-1" />
+
+          {!isLast ? (
+            <button
+              type="button"
+              onClick={() => setStep((s) => s + 1)}
+              disabled={!canProceed()}
+              className="flex items-center gap-1.5 px-5 py-2.5 rounded-full bg-[var(--ss-i-900)] text-white text-sm font-semibold hover:bg-[var(--ss-i-700)] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              style={{ fontFamily: "var(--font-jakarta)" }}
+            >
+              Next
+              <ChevronRight size={14} />
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={handleSubmit}
+              disabled={submitting}
+              className="flex items-center gap-2 px-5 py-2.5 rounded-full bg-[var(--ss-o-500)] text-white text-sm font-semibold hover:bg-[var(--ss-o-600)] disabled:opacity-60 transition-all shadow-[var(--ss-shadow-brand)]"
+              style={{ fontFamily: "var(--font-jakarta)" }}
+            >
+              {submitting ? (
+                <>
+                  <span className="w-4 h-4 rounded-full border-2 border-white/30 border-t-white animate-spin" />
+                  Getting things ready…
+                </>
+              ) : (
+                <>
+                  Submit &amp; Regenerate
+                  <ArrowRight size={14} />
+                </>
               )}
-            </QuestionCard>
-          ))}
-
-          <button
-            type="submit"
-            disabled={submitting}
-            className="w-full flex items-center justify-center gap-2 px-6 py-3.5 rounded-full bg-[var(--ss-o-500)] text-white font-semibold hover:bg-[var(--ss-o-600)] hover:shadow-[var(--ss-shadow-brand)] active:bg-[var(--ss-o-700)] disabled:opacity-60 transition-all mt-2"
-          >
-            {submitting ? (
-              <>
-                <span className="w-4 h-4 rounded-full border-2 border-white/30 border-t-white animate-spin" />
-                Getting things ready…
-              </>
-            ) : (
-              "Regenerate Report"
-            )}
-          </button>
-        </form>
+            </button>
+          )}
+        </div>
       </main>
-    </div>
-  );
-}
-
-function QuestionCard({
-  index,
-  total,
-  question,
-  children,
-}: {
-  index: number;
-  total: number;
-  question: QuestionnaireQuestion;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="bg-white rounded-2xl shadow-[var(--ss-shadow)] border border-[var(--ss-i-200)] p-6">
-      <div className="flex items-center justify-between mb-1">
-        <p className="text-xs font-semibold text-[var(--ss-i-400)] uppercase tracking-wide">
-          Question {index + 1} of {total}
-        </p>
-      </div>
-      <h3 className="text-sm font-semibold text-[var(--ss-i-900)] mb-1">{question.label}</h3>
-      {question.description && (
-        <p className="text-xs text-[var(--ss-i-400)] mb-4">{question.description}</p>
-      )}
-      <div className="mt-3">{children}</div>
-    </div>
-  );
-}
-
-function DropdownField({
-  options,
-  value,
-  onChange,
-}: {
-  options: { value: number; label: string }[];
-  value: number | null;
-  onChange: (v: number) => void;
-}) {
-  return (
-    <div className="space-y-2">
-      {options.map((opt) => (
-        <label
-          key={opt.value}
-          className={`flex items-start gap-3 p-3 rounded-xl border cursor-pointer transition-colors ${
-            value === opt.value
-              ? "border-[var(--ss-o-500)] bg-[var(--ss-o-50)]"
-              : "border-[var(--ss-i-200)] hover:border-[var(--ss-o-300)] hover:bg-[var(--ss-o-50)]/50"
-          }`}
-        >
-          <input
-            type="radio"
-            name={`dropdown-${opt.value}`}
-            value={opt.value}
-            checked={value === opt.value}
-            onChange={() => onChange(opt.value)}
-            className="mt-0.5 accent-[var(--ss-o-500)]"
-          />
-          <span className="text-sm text-[var(--ss-i-700)]">{opt.label}</span>
-        </label>
-      ))}
     </div>
   );
 }
