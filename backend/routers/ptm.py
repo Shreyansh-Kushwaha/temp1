@@ -6,7 +6,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from db.connection import get_db
-from services import claude_service, wise_service
+from services import claude_service, wise_service, tts_service, risk_service, version_service
 
 router = APIRouter(prefix="/api/ptm", tags=["ptm"])
 
@@ -18,7 +18,20 @@ def now_iso() -> str:
 def row_to_report(row) -> dict:
     d = dict(row)
     d["draft_content"] = json.loads(d["draft_content"])
+    # Tone defaults so older rows don't break clients
+    d.setdefault("tone_warmth", "balanced")
+    d.setdefault("tone_detail", "balanced")
+    if d.get("tone_warmth") is None:
+        d["tone_warmth"] = "balanced"
+    if d.get("tone_detail") is None:
+        d["tone_detail"] = "balanced"
     return d
+
+
+def _extract_overall_confidence(draft: dict) -> int | None:
+    ai = draft.get("ai_confidence") or {}
+    val = ai.get("overall")
+    return int(val) if isinstance(val, (int, float)) else None
 
 
 # ── Questions pool ──────────────────────────────────────────────────────────
@@ -72,6 +85,22 @@ class PatchDraftBody(BaseModel):
     draft_content: dict
 
 
+class ToneBody(BaseModel):
+    warmth: str | None = None  # warm | balanced | formal
+    detail: str | None = None  # concise | balanced | detailed
+
+
+def _tone_dict(tone: ToneBody | None) -> dict | None:
+    if not tone:
+        return None
+    out = {}
+    if tone.warmth in ("warm", "balanced", "formal"):
+        out["warmth"] = tone.warmth
+    if tone.detail in ("concise", "balanced", "detailed"):
+        out["detail"] = tone.detail
+    return out or None
+
+
 class GenerateFromSessionsBody(BaseModel):
     student_id: str
     student_name: str
@@ -85,6 +114,7 @@ class GenerateFromSessionsBody(BaseModel):
     improvement_areas: str | None = None
     parent_note: str | None = None
     next_month_goals: list[str] | None = None
+    tone: ToneBody | None = None
 
 
 class QuestionnaireBody(BaseModel):
@@ -94,6 +124,21 @@ class QuestionnaireBody(BaseModel):
     topics_correction: str | None = None
     next_month_topics: list[str] | None = None
     free_form_note: str | None = None
+    tone: ToneBody | None = None
+
+
+class RegenerateWithToneBody(BaseModel):
+    tone: ToneBody
+
+
+class AudioSummaryBody(BaseModel):
+    voice: str | None = None
+
+
+class CopilotMessageBody(BaseModel):
+    student_id: str
+    conversation_id: str | None = None
+    message: str
 
 
 # ── Endpoints ───────────────────────────────────────────────────────────────
@@ -157,7 +202,9 @@ async def generate_report_from_sessions(body: GenerateFromSessionsBody):
     if body.next_month_goals:
         overrides["next_month_topics"] = body.next_month_goals
 
-    draft = await claude_service.generate_report(wise_data, overrides or None)
+    tone = _tone_dict(body.tone)
+    draft = await claude_service.generate_report(wise_data, overrides or None, tone)
+    overall = _extract_overall_confidence(draft)
 
     db = await get_db()
     try:
@@ -166,10 +213,19 @@ async def generate_report_from_sessions(body: GenerateFromSessionsBody):
         await db.execute(
             """INSERT INTO ptm_reports
                (id, student_id, teacher_id, student_name, subject, reporting_month,
-                status, draft_content, regeneration_count, created_at, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, 0, ?, ?)""",
+                status, draft_content, regeneration_count, created_at, updated_at,
+                overall_confidence, tone_warmth, tone_detail)
+               VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, 0, ?, ?, ?, ?, ?)""",
             [report_id, body.student_id, "", body.student_name, body.subject,
-             month, json.dumps(draft), ts, ts],
+             month, json.dumps(draft), ts, ts, overall,
+             (tone or {}).get("warmth", "balanced"), (tone or {}).get("detail", "balanced")],
+        )
+        # Initial version snapshot
+        await db.execute(
+            """INSERT INTO ptm_report_versions
+               (id, report_id, version_number, draft_content, trigger, created_at)
+               VALUES (?, ?, 1, ?, 'initial', ?)""",
+            [str(uuid.uuid4()), report_id, json.dumps(draft), ts],
         )
         await db.commit()
         return {"report_id": report_id, "status": "pending", "draft_content": draft}
@@ -226,9 +282,22 @@ async def patch_report(report_id: str, body: PatchDraftBody):
         if not row:
             raise HTTPException(status_code=404, detail="Report not found")
         ts = now_iso()
+        overall = _extract_overall_confidence(body.draft_content)
         await db.execute(
-            "UPDATE ptm_reports SET draft_content=?, updated_at=? WHERE id=?",
-            [json.dumps(body.draft_content), ts, report_id],
+            "UPDATE ptm_reports SET draft_content=?, overall_confidence=?, updated_at=? WHERE id=?",
+            [json.dumps(body.draft_content), overall, ts, report_id],
+        )
+        # Snapshot post-edit version
+        async with db.execute(
+            "SELECT COALESCE(MAX(version_number),0) FROM ptm_report_versions WHERE report_id=?",
+            [report_id],
+        ) as cur:
+            (max_v,) = await cur.fetchone()
+        await db.execute(
+            """INSERT INTO ptm_report_versions
+               (id, report_id, version_number, draft_content, trigger, created_at)
+               VALUES (?, ?, ?, ?, 'edit', ?)""",
+            [str(uuid.uuid4()), report_id, int(max_v) + 1, json.dumps(body.draft_content), ts],
         )
         await db.commit()
         return {"status": "saved"}
@@ -364,14 +433,85 @@ async def submit_questionnaire(report_id: str, body: QuestionnaireBody):
         if not wise_data:
             raise HTTPException(status_code=500, detail="Could not fetch student data")
 
-        new_draft = await claude_service.generate_report(wise_data, overrides)
+        # Tone — body wins, else carry over the report's stored tone
+        tone = _tone_dict(body.tone) or {
+            "warmth": report.get("tone_warmth") or "balanced",
+            "detail": report.get("tone_detail") or "balanced",
+        }
+
+        new_draft = await claude_service.generate_report(wise_data, overrides, tone)
+        overall = _extract_overall_confidence(new_draft)
 
         await db.execute(
-            "UPDATE ptm_reports SET draft_content=?, status='pending', regeneration_count=?, updated_at=? WHERE id=?",
-            [json.dumps(new_draft), regen_count, ts, report_id],
+            """UPDATE ptm_reports
+               SET draft_content=?, status='pending', regeneration_count=?, updated_at=?,
+                   overall_confidence=?, tone_warmth=?, tone_detail=?
+               WHERE id=?""",
+            [json.dumps(new_draft), regen_count, ts, overall,
+             tone.get("warmth", "balanced"), tone.get("detail", "balanced"), report_id],
+        )
+        async with db.execute(
+            "SELECT COALESCE(MAX(version_number),0) FROM ptm_report_versions WHERE report_id=?",
+            [report_id],
+        ) as cur:
+            (max_v,) = await cur.fetchone()
+        await db.execute(
+            """INSERT INTO ptm_report_versions
+               (id, report_id, version_number, draft_content, trigger, notes, created_at)
+               VALUES (?, ?, ?, ?, 'regenerate', ?, ?)""",
+            [str(uuid.uuid4()), report_id, int(max_v) + 1, json.dumps(new_draft),
+             body.free_form_note, ts],
         )
         await db.commit()
         return {"status": "regenerated", "draft_content": new_draft, "regeneration_count": regen_count}
+    finally:
+        await db.close()
+
+
+@router.post("/reports/{report_id}/regenerate-tone")
+async def regenerate_with_tone(report_id: str, body: RegenerateWithToneBody):
+    """Re-render an existing report with new tone settings. Doesn't count toward the 2-cycle rejection cap."""
+    db = await get_db()
+    try:
+        async with db.execute(
+            "SELECT * FROM ptm_reports WHERE id = ? AND deleted_at IS NULL", [report_id]
+        ) as cur:
+            row = await cur.fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Report not found")
+        report = row_to_report(row)
+
+        tone = _tone_dict(body.tone) or {"warmth": "balanced", "detail": "balanced"}
+        wise_data = await wise_service.get_student_month_data(
+            report["student_id"], report["reporting_month"]
+        )
+        if not wise_data:
+            raise HTTPException(status_code=500, detail="Could not fetch student data")
+
+        new_draft = await claude_service.generate_report(wise_data, None, tone)
+        overall = _extract_overall_confidence(new_draft)
+        ts = now_iso()
+
+        await db.execute(
+            """UPDATE ptm_reports
+               SET draft_content=?, overall_confidence=?, tone_warmth=?, tone_detail=?, updated_at=?
+               WHERE id=?""",
+            [json.dumps(new_draft), overall,
+             tone.get("warmth", "balanced"), tone.get("detail", "balanced"), ts, report_id],
+        )
+        async with db.execute(
+            "SELECT COALESCE(MAX(version_number),0) FROM ptm_report_versions WHERE report_id=?",
+            [report_id],
+        ) as cur:
+            (max_v,) = await cur.fetchone()
+        await db.execute(
+            """INSERT INTO ptm_report_versions
+               (id, report_id, version_number, draft_content, trigger, created_at)
+               VALUES (?, ?, ?, ?, 'tone_change', ?)""",
+            [str(uuid.uuid4()), report_id, int(max_v) + 1, json.dumps(new_draft), ts],
+        )
+        await db.commit()
+        return {"status": "regenerated", "draft_content": new_draft, "tone": tone}
     finally:
         await db.close()
 
@@ -401,16 +541,24 @@ async def generate_all_reports(month: str | None = None):
 
             wise_data = await wise_service.get_student_month_data(s["student_id"], month)
             draft = await claude_service.generate_report(wise_data)
+            overall = _extract_overall_confidence(draft)
 
             ts = now_iso()
             report_id = str(uuid.uuid4())
             await db.execute(
                 """INSERT INTO ptm_reports
                    (id, student_id, teacher_id, student_name, subject, reporting_month,
-                    status, draft_content, regeneration_count, created_at, updated_at)
-                   VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, 0, ?, ?)""",
+                    status, draft_content, regeneration_count, created_at, updated_at,
+                    overall_confidence, tone_warmth, tone_detail)
+                   VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, 0, ?, ?, ?, 'balanced', 'balanced')""",
                 [report_id, s["student_id"], s["teacher_id"], s["name"], s["subject"],
-                 month, json.dumps(draft), ts, ts],
+                 month, json.dumps(draft), ts, ts, overall],
+            )
+            await db.execute(
+                """INSERT INTO ptm_report_versions
+                   (id, report_id, version_number, draft_content, trigger, created_at)
+                   VALUES (?, ?, 1, ?, 'initial', ?)""",
+                [str(uuid.uuid4()), report_id, json.dumps(draft), ts],
             )
             created.append(report_id)
 
@@ -453,3 +601,439 @@ async def override_escalated(report_id: str):
         return {"status": "approved", "delivered_via": ["email", "whatsapp"]}
     finally:
         await db.close()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Phase 2: audio summary
+# ─────────────────────────────────────────────────────────────────────────────
+
+@router.post("/reports/{report_id}/audio-summary")
+async def create_audio_summary(report_id: str, body: AudioSummaryBody):
+    db = await get_db()
+    try:
+        async with db.execute(
+            "SELECT * FROM ptm_reports WHERE id = ? AND deleted_at IS NULL", [report_id]
+        ) as cur:
+            row = await cur.fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Report not found")
+        report = row_to_report(row)
+        script = report["draft_content"].get("audio_script") or ""
+        if not script:
+            raise HTTPException(status_code=400, detail="No audio_script available — regenerate the report first")
+
+        result = await tts_service.synthesize_summary(script, voice=body.voice)
+        ts = now_iso()
+        audio_id = str(uuid.uuid4())
+        await db.execute(
+            """INSERT INTO ptm_audio_summaries
+               (id, report_id, provider, voice, script, audio_url,
+                duration_seconds, status, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, 'ready', ?)""",
+            [audio_id, report_id, result.provider, result.voice, result.script,
+             result.audio_url, result.duration_seconds, ts],
+        )
+        if result.audio_url:
+            await db.execute(
+                "UPDATE ptm_reports SET audio_url=?, updated_at=? WHERE id=?",
+                [result.audio_url, ts, report_id],
+            )
+        await db.commit()
+        return {
+            "id": audio_id,
+            "provider": result.provider,
+            "script": result.script,
+            "audio_url": result.audio_url,
+            "duration_seconds": result.duration_seconds,
+            "voice": result.voice,
+        }
+    finally:
+        await db.close()
+
+
+@router.get("/reports/{report_id}/audio-summary")
+async def get_audio_summary(report_id: str):
+    db = await get_db()
+    try:
+        async with db.execute(
+            """SELECT * FROM ptm_audio_summaries
+               WHERE report_id = ? ORDER BY created_at DESC LIMIT 1""",
+            [report_id],
+        ) as cur:
+            row = await cur.fetchone()
+        if not row:
+            return None
+        return dict(row)
+    finally:
+        await db.close()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Phase 2: version history (powers diff view)
+# ─────────────────────────────────────────────────────────────────────────────
+
+@router.get("/reports/{report_id}/versions")
+async def list_report_versions(report_id: str):
+    db = await get_db()
+    try:
+        return await version_service.list_versions(db, report_id)
+    finally:
+        await db.close()
+
+
+@router.get("/reports/{report_id}/versions/{version_number}")
+async def get_report_version(report_id: str, version_number: int):
+    db = await get_db()
+    try:
+        v = await version_service.get_version(db, report_id, version_number)
+        if not v:
+            raise HTTPException(status_code=404, detail="Version not found")
+        return v
+    finally:
+        await db.close()
+
+
+@router.get("/reports/{report_id}/diff")
+async def get_report_diff(report_id: str, before: int | None = None, after: int | None = None):
+    db = await get_db()
+    try:
+        a, b = await version_service.get_pair(db, report_id, before, after)
+        if not b:
+            raise HTTPException(status_code=404, detail="No versions to diff")
+        return {"before": a, "after": b}
+    finally:
+        await db.close()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Phase 2: risk detection
+# ─────────────────────────────────────────────────────────────────────────────
+
+@router.post("/risk/recompute")
+async def recompute_all_risk():
+    """Walk every student's history and rebuild ptm_risk_signals."""
+    db = await get_db()
+    try:
+        async with db.execute(
+            """SELECT student_id FROM ptm_reports
+               WHERE deleted_at IS NULL
+               GROUP BY student_id"""
+        ) as cur:
+            student_ids = [r[0] for r in await cur.fetchall()]
+        total = 0
+        for sid in student_ids:
+            async with db.execute(
+                """SELECT * FROM ptm_reports
+                   WHERE student_id = ? AND deleted_at IS NULL
+                   ORDER BY reporting_month ASC, created_at ASC""",
+                [sid],
+            ) as cur:
+                rows = [dict(r) for r in await cur.fetchall()]
+            for r in rows:
+                try:
+                    r["draft_content"] = json.loads(r["draft_content"])
+                except (json.JSONDecodeError, TypeError):
+                    r["draft_content"] = {}
+            signals = risk_service.detect_for_history(sid, rows)
+            await risk_service.replace_signals_for_student(db, sid, signals)
+            total += len(signals)
+        await db.commit()
+        return {"students_checked": len(student_ids), "active_signals": total}
+    finally:
+        await db.close()
+
+
+@router.get("/risk/students-at-risk")
+async def list_students_at_risk(severity: str | None = None):
+    db = await get_db()
+    try:
+        signals = await risk_service.list_active_signals(db, severity=severity)
+        # Group by student
+        grouped: dict[str, dict] = {}
+        for s in signals:
+            sid = s["student_id"]
+            entry = grouped.setdefault(sid, {
+                "student_id": sid,
+                "highest_severity": "low",
+                "signals": [],
+                "student_name": None,
+                "subject": None,
+            })
+            entry["signals"].append(s)
+            if risk_service.SEVERITY_RANK[s["severity"]] > risk_service.SEVERITY_RANK[entry["highest_severity"]]:
+                entry["highest_severity"] = s["severity"]
+        # Hydrate student name + subject from the most recent report
+        for sid, entry in grouped.items():
+            async with db.execute(
+                """SELECT student_name, subject FROM ptm_reports
+                   WHERE student_id = ? AND deleted_at IS NULL
+                   ORDER BY created_at DESC LIMIT 1""",
+                [sid],
+            ) as cur:
+                row = await cur.fetchone()
+            if row:
+                entry["student_name"] = row[0]
+                entry["subject"] = row[1]
+        # Sort by severity (high first), then name
+        ordered = sorted(
+            grouped.values(),
+            key=lambda e: (-risk_service.SEVERITY_RANK[e["highest_severity"]], e["student_name"] or ""),
+        )
+        return ordered
+    finally:
+        await db.close()
+
+
+@router.get("/risk/students/{student_id}")
+async def get_student_risk(student_id: str):
+    db = await get_db()
+    try:
+        async with db.execute(
+            """SELECT * FROM ptm_risk_signals
+               WHERE student_id = ?
+               ORDER BY created_at DESC""",
+            [student_id],
+        ) as cur:
+            rows = await cur.fetchall()
+        out = []
+        for r in rows:
+            d = dict(r)
+            try:
+                d["evidence"] = json.loads(d["evidence"]) if d.get("evidence") else []
+            except json.JSONDecodeError:
+                d["evidence"] = []
+            out.append(d)
+        return out
+    finally:
+        await db.close()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Phase 3: copilot (hardcoded for now — architecture supports real LLM later)
+# ─────────────────────────────────────────────────────────────────────────────
+
+_COPILOT_INTENTS = [
+    ("changed", "What changed this month"),
+    ("weak", "Weak areas"),
+    ("summarize", "Summary of progress"),
+    ("parents help", "Parent guidance"),
+    ("confidence drop", "Confidence drop"),
+]
+
+
+def _copilot_canned_response(student_id: str, message: str, latest_report: dict | None) -> str:
+    msg = message.lower()
+    name = (latest_report or {}).get("student_name") or "the student"
+    d = (latest_report or {}).get("draft_content") or {}
+
+    if any(t in msg for t in ["changed", "what changed", "this month"]):
+        topics = d.get("learning_coverage", {}).get("topics", []) or []
+        nxt = d.get("next_steps", {}).get("topics", []) or []
+        return (
+            f"This month {name} covered: {', '.join(topics[:3]) or 'core concepts'}. "
+            f"Compared with prior reports, the most notable shifts were in engagement and "
+            f"independent application. The recommended next steps are "
+            f"{', '.join(nxt[:2]) or 'continued practice'}."
+        )
+    if any(t in msg for t in ["weak", "growth", "struggle"]):
+        items = d.get("growth_areas", {}).get("items", []) or []
+        return (
+            f"The recurring growth areas for {name} are:\n\n"
+            + "\n".join(f"- {i}" for i in items[:3])
+            + "\n\nThese map to **homework consistency** and **academic understanding** sub-scores."
+        )
+    if any(t in msg for t in ["summary", "summarize", "summarise", "progress"]):
+        narr = d.get("student_performance", {}).get("narrative", "")
+        return narr or f"{name} is progressing steadily — see the report's *Overall Performance* section for the full narrative."
+    if any(t in msg for t in ["parent", "home", "help"]):
+        items = (d.get("at_home_action_plan") or {}).get("items", []) or []
+        if not items:
+            items = [{"title": i, "description": ""} for i in d.get("parent_action_items", {}).get("items", [])]
+        bullets = "\n".join(f"- **{i.get('title','')}** — {i.get('description','')}".strip(" —")
+                            for i in items[:3])
+        return f"Three high-leverage things parents can do this month:\n\n{bullets}"
+    if any(t in msg for t in ["confidence", "drop", "decline"]):
+        return (
+            f"The agent's confidence in this report is influenced by transcript coverage "
+            f"and the strength of explicit observations. Inferred sections automatically lower "
+            f"the score. Open the *Why was this generated?* panel under any inferred section to "
+            f"see the supporting evidence — that's the fastest way to spot what's missing."
+        )
+
+    return (
+        f"I can help with: what changed this month, weak areas, a quick summary, parent guidance, "
+        f"or explaining a confidence drop. Try one of those, or ask in your own words."
+    )
+
+
+@router.post("/copilot/message")
+async def copilot_message(body: CopilotMessageBody):
+    db = await get_db()
+    try:
+        # Latest report for context
+        async with db.execute(
+            """SELECT * FROM ptm_reports
+               WHERE student_id = ? AND deleted_at IS NULL
+               ORDER BY created_at DESC LIMIT 1""",
+            [body.student_id],
+        ) as cur:
+            row = await cur.fetchone()
+        latest = row_to_report(row) if row else None
+
+        conv_id = body.conversation_id or str(uuid.uuid4())
+        ts = now_iso()
+        await db.execute(
+            """INSERT INTO ptm_copilot_messages
+               (id, student_id, conversation_id, role, content, created_at)
+               VALUES (?, ?, ?, 'user', ?, ?)""",
+            [str(uuid.uuid4()), body.student_id, conv_id, body.message, ts],
+        )
+        reply = _copilot_canned_response(body.student_id, body.message, latest)
+        await db.execute(
+            """INSERT INTO ptm_copilot_messages
+               (id, student_id, conversation_id, role, content, created_at)
+               VALUES (?, ?, ?, 'assistant', ?, ?)""",
+            [str(uuid.uuid4()), body.student_id, conv_id, reply, ts],
+        )
+        await db.commit()
+        return {
+            "conversation_id": conv_id,
+            "reply": reply,
+            "suggested_prompts": [s[1] for s in _COPILOT_INTENTS],
+        }
+    finally:
+        await db.close()
+
+
+@router.get("/copilot/history")
+async def copilot_history(student_id: str, conversation_id: str | None = None, limit: int = 50):
+    db = await get_db()
+    try:
+        if conversation_id:
+            sql = """SELECT * FROM ptm_copilot_messages
+                     WHERE student_id = ? AND conversation_id = ?
+                     ORDER BY created_at ASC LIMIT ?"""
+            params = [student_id, conversation_id, limit]
+        else:
+            sql = """SELECT * FROM ptm_copilot_messages
+                     WHERE student_id = ?
+                     ORDER BY created_at DESC LIMIT ?"""
+            params = [student_id, limit]
+        async with db.execute(sql, params) as cur:
+            return [dict(r) for r in await cur.fetchall()]
+    finally:
+        await db.close()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Phase 3: knowledge graph
+# ─────────────────────────────────────────────────────────────────────────────
+
+@router.get("/students/{student_id}/concepts")
+async def list_student_concepts(student_id: str, subject: str | None = None):
+    db = await get_db()
+    try:
+        sql = "SELECT * FROM ptm_student_concepts WHERE student_id = ?"
+        params: list = [student_id]
+        if subject:
+            sql += " AND subject = ?"
+            params.append(subject)
+        sql += " ORDER BY mastery_score DESC, last_seen_at DESC"
+        async with db.execute(sql, params) as cur:
+            return [dict(r) for r in await cur.fetchall()]
+    finally:
+        await db.close()
+
+
+@router.get("/students/{student_id}/knowledge-summary")
+async def knowledge_summary(student_id: str):
+    """
+    Aggregate signals across this student's reports to power the knowledge dashboard.
+    Mockable: derives from existing reports + concepts table; returns shape ready for the UI.
+    """
+    db = await get_db()
+    try:
+        async with db.execute(
+            """SELECT * FROM ptm_reports
+               WHERE student_id = ? AND deleted_at IS NULL
+               ORDER BY reporting_month ASC, created_at ASC""",
+            [student_id],
+        ) as cur:
+            rows = [dict(r) for r in await cur.fetchall()]
+        for r in rows:
+            try:
+                r["draft_content"] = json.loads(r["draft_content"])
+            except (json.JSONDecodeError, TypeError):
+                r["draft_content"] = {}
+
+        topics: dict[str, dict] = {}  # concept → {count, last_month, mastery}
+        attendance_trend = []
+        confidence_trend = []
+        student_name = None
+        subject = None
+        for r in rows:
+            student_name = student_name or r.get("student_name")
+            subject = subject or r.get("subject")
+            d = r["draft_content"]
+            attendance_trend.append({
+                "month": r.get("reporting_month"),
+                "attendance_pct": d.get("sessions_attendance", {}).get("attendance_pct"),
+            })
+            confidence_trend.append({
+                "month": r.get("reporting_month"),
+                "overall_confidence": r.get("overall_confidence"),
+            })
+            for t in d.get("learning_coverage", {}).get("topics", []) or []:
+                key = t.strip()
+                if not key:
+                    continue
+                e = topics.setdefault(key, {"concept": key, "count": 0, "last_month": None})
+                e["count"] += 1
+                e["last_month"] = r.get("reporting_month")
+
+        # Mastery proxy: more times covered → higher mastery (cap 100)
+        mastered = []
+        learning = []
+        weak_topics = set()
+        for r in rows:
+            for w in (r["draft_content"].get("growth_areas", {}).get("items") or []):
+                weak_topics.add(_topic_stem(w))
+
+        for c in topics.values():
+            stem = _topic_stem(c["concept"])
+            mastery = min(100, 30 + c["count"] * 22)
+            status = "mastered" if mastery >= 80 else "weak" if stem in weak_topics else "learning"
+            entry = {
+                "concept": c["concept"],
+                "mastery_score": mastery,
+                "status": status,
+                "last_month": c["last_month"],
+                "appearances": c["count"],
+            }
+            (mastered if status == "mastered" else learning).append(entry)
+
+        # Learning velocity: avg new concepts per report
+        velocity = round(len(topics) / max(1, len(rows)), 2) if rows else 0.0
+
+        return {
+            "student_id": student_id,
+            "student_name": student_name,
+            "subject": subject,
+            "attendance_trend": attendance_trend,
+            "confidence_trend": confidence_trend,
+            "concepts": [*mastered, *learning],
+            "concept_summary": {
+                "total": len(topics),
+                "mastered": len(mastered),
+                "learning": len(learning),
+                "weak": sum(1 for c in [*mastered, *learning] if c["status"] == "weak"),
+            },
+            "learning_velocity": velocity,
+            "report_count": len(rows),
+        }
+    finally:
+        await db.close()
+
+
+def _topic_stem(text: str) -> str:
+    return " ".join(w.lower() for w in text.split() if len(w) > 3)[:50]
