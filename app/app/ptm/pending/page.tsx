@@ -5,8 +5,11 @@ import Link from "next/link";
 import { Bell, ChevronRight, Check, FileText, Clock, CheckCircle2, Send, AlertCircle, RefreshCw, ChevronDown } from "lucide-react";
 import Navbar from "@/app/components/Navbar";
 import StatusBadge from "@/app/components/StatusBadge";
+import StudentsAtRiskSection from "@/app/components/StudentsAtRiskSection";
+import ConfidenceBadge from "@/app/components/ConfidenceBadge";
 import { type PTMReport, type ReportStatus } from "@/app/lib/mock-data";
 import { api } from "@/app/lib/api";
+import { getAuth } from "@/app/lib/auth";
 
 type FilterTab = "all" | ReportStatus;
 
@@ -45,11 +48,20 @@ export default function PendingPage() {
   const [approvingId, setApprovingId] = useState<string | null>(null);
   const [teachers, setTeachers] = useState<string[]>([]);
   const [selectedTeacher, setSelectedTeacher] = useState<string>("");
+  const [isAdminUser, setIsAdminUser] = useState(false);
+  const [scopedTeacher, setScopedTeacher] = useState<string | null>(null);
 
   useEffect(() => {
-    api.teachers.list()
-      .then((data) => setTeachers(data.map((t) => t.teacher_name).filter(Boolean).sort()))
-      .catch(() => {});
+    const auth = getAuth();
+    if (auth?.role === "admin") {
+      setIsAdminUser(true);
+      api.teachers.list()
+        .then((data) => setTeachers(data.map((t) => t.teacher_name).filter(Boolean).sort()))
+        .catch(() => {});
+    } else if (auth?.role === "teacher" && auth.teacher_name) {
+      setScopedTeacher(auth.teacher_name);
+      setSelectedTeacher(auth.teacher_name);
+    }
   }, []);
 
   const fetchReports = useCallback(async (teacherName?: string) => {
@@ -109,34 +121,50 @@ export default function PendingPage() {
           </p>
         </div>
 
-        {/* Teacher selector */}
-        <div className="mb-6">
-          <label className="block text-xs font-semibold text-[var(--ss-i-500)] uppercase tracking-wide mb-2">
-            Viewing reports for
-          </label>
-          <div className="relative inline-block w-full max-w-sm">
-            <select
-              value={selectedTeacher}
-              onChange={(e) => { setSelectedTeacher(e.target.value); setActiveTab("all"); }}
-              className="w-full appearance-none bg-white border border-[var(--ss-i-200)] rounded-2xl px-4 py-3 pr-10 text-sm font-semibold text-[var(--ss-i-900)] shadow-[var(--ss-shadow)] cursor-pointer focus:outline-none focus:ring-2 focus:ring-[var(--ss-o-300)] focus:border-[var(--ss-o-400)] transition-all"
-              style={{ fontFamily: "var(--font-jakarta)" }}
-            >
-              <option value="">All Teachers</option>
-              {teachers.map((name) => (
-                <option key={name} value={name}>{name}</option>
-              ))}
-            </select>
-            <ChevronDown size={15} className="absolute right-3.5 top-1/2 -translate-y-1/2 text-[var(--ss-i-400)] pointer-events-none" />
+        {/* Teacher selector — admin only */}
+        {isAdminUser ? (
+          <div className="mb-6">
+            <label className="block text-xs font-semibold text-[var(--ss-i-500)] uppercase tracking-wide mb-2">
+              Viewing reports for
+            </label>
+            <div className="relative inline-block w-full max-w-sm">
+              <select
+                value={selectedTeacher}
+                onChange={(e) => { setSelectedTeacher(e.target.value); setActiveTab("all"); }}
+                className="w-full appearance-none bg-white border border-[var(--ss-i-200)] rounded-2xl px-4 py-3 pr-10 text-sm font-semibold text-[var(--ss-i-900)] shadow-[var(--ss-shadow)] cursor-pointer focus:outline-none focus:ring-2 focus:ring-[var(--ss-o-300)] focus:border-[var(--ss-o-400)] transition-all"
+                style={{ fontFamily: "var(--font-jakarta)" }}
+              >
+                <option value="">All Teachers</option>
+                {teachers.map((name) => (
+                  <option key={name} value={name}>{name}</option>
+                ))}
+              </select>
+              <ChevronDown size={15} className="absolute right-3.5 top-1/2 -translate-y-1/2 text-[var(--ss-i-400)] pointer-events-none" />
+            </div>
+            {selectedTeacher && (
+              <button
+                onClick={() => { setSelectedTeacher(""); setActiveTab("all"); }}
+                className="ml-3 text-xs text-[var(--ss-o-600)] font-medium hover:underline"
+              >
+                Clear
+              </button>
+            )}
           </div>
-          {selectedTeacher && (
-            <button
-              onClick={() => { setSelectedTeacher(""); setActiveTab("all"); }}
-              className="ml-3 text-xs text-[var(--ss-o-600)] font-medium hover:underline"
-            >
-              Clear
-            </button>
-          )}
-        </div>
+        ) : scopedTeacher ? (
+          <div className="mb-6 inline-flex items-center gap-2.5 px-4 py-2.5 rounded-2xl bg-[var(--ss-o-50)] border border-[var(--ss-o-200)]">
+            <span className="w-7 h-7 rounded-full bg-[var(--ss-o-500)] flex items-center justify-center shadow-[var(--ss-shadow-brand)]">
+              <span className="text-white font-bold text-[10px]" style={{ fontFamily: "var(--font-jakarta)" }}>
+                {scopedTeacher.split(" ").map((w) => w[0]).join("").slice(0, 2).toUpperCase()}
+              </span>
+            </span>
+            <div className="leading-tight">
+              <p className="text-[10px] font-bold uppercase tracking-widest text-[var(--ss-o-600)]">Your reports</p>
+              <p className="text-sm font-semibold text-[var(--ss-i-900)]" style={{ fontFamily: "var(--font-jakarta)" }}>
+                {scopedTeacher}
+              </p>
+            </div>
+          </div>
+        ) : null}
 
         {/* Stat cards */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
@@ -180,6 +208,8 @@ export default function PendingPage() {
             </div>
           </div>
         )}
+
+        <StudentsAtRiskSection />
 
         {/* Filter tabs */}
         <div className="flex items-center gap-1 mb-4 overflow-x-auto pb-1">
@@ -249,6 +279,7 @@ export default function PendingPage() {
                     <th className="text-left py-3 px-5 font-semibold text-[var(--ss-i-500)] text-xs uppercase tracking-wide">Subject</th>
                     <th className="text-left py-3 px-5 font-semibold text-[var(--ss-i-500)] text-xs uppercase tracking-wide hidden md:table-cell">Month</th>
                     <th className="text-left py-3 px-5 font-semibold text-[var(--ss-i-500)] text-xs uppercase tracking-wide">Status</th>
+                    <th className="text-left py-3 px-5 font-semibold text-[var(--ss-i-500)] text-xs uppercase tracking-wide hidden lg:table-cell">AI&nbsp;Conf.</th>
                     <th className="text-left py-3 px-5 font-semibold text-[var(--ss-i-500)] text-xs uppercase tracking-wide hidden sm:table-cell">Generated</th>
                     <th className="py-3 px-5" />
                   </tr>
@@ -267,6 +298,13 @@ export default function PendingPage() {
                       </td>
                       <td className="py-3.5 px-5">
                         <StatusBadge status={report.status} />
+                      </td>
+                      <td className="py-3.5 px-5 hidden lg:table-cell">
+                        {report.overall_confidence != null ? (
+                          <ConfidenceBadge score={report.overall_confidence} size="sm" />
+                        ) : (
+                          <span className="text-[10px] text-[var(--ss-i-300)]">—</span>
+                        )}
                       </td>
                       <td className="py-3.5 px-5 text-[var(--ss-i-400)] text-xs hidden sm:table-cell">
                         {timeAgo(report.created_at)}

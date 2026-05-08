@@ -6,6 +6,7 @@ import { ChevronDown, BookOpen, Calendar, Users, AlertCircle, RefreshCw, Search 
 
 import Navbar from "@/app/components/Navbar";
 import { api, type StudentSummary } from "@/app/lib/api";
+import { getAuth } from "@/app/lib/auth";
 
 function lastSessionLabel(iso?: string | null) {
   if (!iso) return null;
@@ -26,7 +27,17 @@ export default function GeneratePage() {
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
 
+  const [isAdminUser, setIsAdminUser] = useState(false);
+
   useEffect(() => {
+    const auth = getAuth();
+    if (auth?.role === "teacher" && auth.teacher_name) {
+      // Skip the dropdown step entirely — go straight to this teacher's students
+      setSelectedTeacher(auth.teacher_name);
+      setLoadingTeachers(false);
+      return;
+    }
+    setIsAdminUser(true);
     api.teachers.list()
       .then((data) => setTeachers(data.map((t) => t.teacher_name).filter(Boolean).sort()))
       .catch(() => {})
@@ -78,32 +89,48 @@ export default function GeneratePage() {
           </p>
         </div>
 
-        {/* Controls */}
-        <div className="mb-8">
-          <div className="max-w-xs">
-            <label className="block text-xs font-semibold text-[var(--ss-i-500)] uppercase tracking-wide mb-1.5">
-              Teacher
-            </label>
-            <div className="relative">
-              <select
-                value={selectedTeacher}
-                onChange={(e) => setSelectedTeacher(e.target.value)}
-                disabled={loadingTeachers}
-                className="w-full appearance-none bg-white border border-[var(--ss-i-200)] rounded-2xl px-4 py-3 pr-10 text-sm font-semibold text-[var(--ss-i-900)] shadow-[var(--ss-shadow)] cursor-pointer focus:outline-none focus:ring-2 focus:ring-[var(--ss-o-300)] focus:border-[var(--ss-o-400)] transition-all disabled:opacity-60"
-                style={{ fontFamily: "var(--font-jakarta)" }}
-              >
-                <option value="">— Select a teacher —</option>
-                {teachers.map((name) => (
-                  <option key={name} value={name}>{name}</option>
-                ))}
-              </select>
-              <ChevronDown size={15} className="absolute right-3.5 top-1/2 -translate-y-1/2 text-[var(--ss-i-400)] pointer-events-none" />
+        {/* Controls — admin can pick any teacher; teachers are auto-scoped */}
+        {isAdminUser ? (
+          <div className="mb-8">
+            <div className="max-w-xs">
+              <label className="block text-xs font-semibold text-[var(--ss-i-500)] uppercase tracking-wide mb-1.5">
+                Teacher
+              </label>
+              <div className="relative">
+                <select
+                  value={selectedTeacher}
+                  onChange={(e) => setSelectedTeacher(e.target.value)}
+                  disabled={loadingTeachers}
+                  className="w-full appearance-none bg-white border border-[var(--ss-i-200)] rounded-2xl px-4 py-3 pr-10 text-sm font-semibold text-[var(--ss-i-900)] shadow-[var(--ss-shadow)] cursor-pointer focus:outline-none focus:ring-2 focus:ring-[var(--ss-o-300)] focus:border-[var(--ss-o-400)] transition-all disabled:opacity-60"
+                  style={{ fontFamily: "var(--font-jakarta)" }}
+                >
+                  <option value="">— Select a teacher —</option>
+                  {teachers.map((name) => (
+                    <option key={name} value={name}>{name}</option>
+                  ))}
+                </select>
+                <ChevronDown size={15} className="absolute right-3.5 top-1/2 -translate-y-1/2 text-[var(--ss-i-400)] pointer-events-none" />
+              </div>
             </div>
           </div>
-        </div>
+        ) : selectedTeacher ? (
+          <div className="mb-8 inline-flex items-center gap-2.5 px-4 py-2.5 rounded-2xl bg-[var(--ss-o-50)] border border-[var(--ss-o-200)]">
+            <span className="w-7 h-7 rounded-full bg-[var(--ss-o-500)] flex items-center justify-center shadow-[var(--ss-shadow-brand)]">
+              <span className="text-white font-bold text-[10px]" style={{ fontFamily: "var(--font-jakarta)" }}>
+                {selectedTeacher.split(" ").map((w) => w[0]).join("").slice(0, 2).toUpperCase()}
+              </span>
+            </span>
+            <div className="leading-tight">
+              <p className="text-[10px] font-bold uppercase tracking-widest text-[var(--ss-o-600)]">Your students</p>
+              <p className="text-sm font-semibold text-[var(--ss-i-900)]" style={{ fontFamily: "var(--font-jakarta)" }}>
+                {selectedTeacher}
+              </p>
+            </div>
+          </div>
+        ) : null}
 
-        {/* No teacher selected */}
-        {!selectedTeacher && !loadingTeachers && (
+        {/* No teacher selected — only meaningful for admin */}
+        {!selectedTeacher && !loadingTeachers && isAdminUser && (
           <div className="flex flex-col items-center justify-center py-24 text-center">
             <div className="w-16 h-16 rounded-2xl bg-[var(--ss-o-50)] flex items-center justify-center mb-4">
               <Users size={28} className="text-[var(--ss-o-400)]" />
