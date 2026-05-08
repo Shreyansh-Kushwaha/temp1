@@ -6,6 +6,7 @@ backend/*.pyc
 backend/ptm.db
 backend/.env
 backend/.temp
+backend/static/audio/
 
 # Next.js
 app/.next/

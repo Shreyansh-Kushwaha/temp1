@@ -14,11 +14,28 @@ async def get_db() -> aiosqlite.Connection:
 
 
 async def run_migrations():
+    """Apply each .sql migration exactly once. Records applied filenames in _schema_migrations."""
     db = await get_db()
     try:
+        await db.execute(
+            "CREATE TABLE IF NOT EXISTS _schema_migrations (filename TEXT PRIMARY KEY, applied_at TEXT NOT NULL)"
+        )
+        await db.commit()
+
+        async with db.execute("SELECT filename FROM _schema_migrations") as cur:
+            applied = {row[0] for row in await cur.fetchall()}
+
+        from datetime import datetime, timezone
+
         for sql_file in sorted(MIGRATIONS_DIR.glob("*.sql")):
+            if sql_file.name in applied:
+                continue
             sql = sql_file.read_text()
             await db.executescript(sql)
-        await db.commit()
+            await db.execute(
+                "INSERT INTO _schema_migrations (filename, applied_at) VALUES (?, ?)",
+                [sql_file.name, datetime.now(timezone.utc).isoformat()],
+            )
+            await db.commit()
     finally:
         await db.close()
