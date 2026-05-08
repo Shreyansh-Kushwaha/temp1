@@ -6,12 +6,42 @@ import Link from "next/link";
 import {
   ArrowLeft, Info, Check, MessageSquare, X, Send, BookOpen,
   TrendingUp, ArrowRight, Pencil, RotateCcw, CheckCircle2, Printer, AlertCircle, RefreshCw,
-  Star, Target, Lightbulb, Heart, Users, ChevronUp, ChevronDown, Edit3, Save, XCircle,
+  Star, Target, Lightbulb, Heart, Users, ChevronUp, Edit3, Save, XCircle,
 } from "lucide-react";
 import Navbar from "@/app/components/Navbar";
 import StatusBadge from "@/app/components/StatusBadge";
-import { type PTMReport } from "@/app/lib/mock-data";
+import ConfidenceBadge from "@/app/components/ConfidenceBadge";
+import ConfidenceMeter from "@/app/components/ConfidenceMeter";
+import ConfidencePanel from "@/app/components/ConfidencePanel";
+import ExplainabilityPanel from "@/app/components/ExplainabilityPanel";
+import ActionPlanCard from "@/app/components/ActionPlanCard";
+import ToneSelector from "@/app/components/ToneSelector";
+import DetailLevelSelector from "@/app/components/DetailLevelSelector";
+import AudioSummaryCard from "@/app/components/AudioSummaryCard";
+import {
+  type PTMReport,
+  type ToneWarmth,
+  type ToneDetail,
+  type Evidence,
+  type AIConfidence,
+} from "@/app/lib/mock-data";
+import { confidenceTier } from "@/app/lib/confidence";
 import { api } from "@/app/lib/api";
+
+// Maps each report section to the AI-confidence sub-score that best reflects it.
+const SECTION_TO_CONFIDENCE: Record<string, keyof AIConfidence["sections"] | undefined> = {
+  learning_coverage: "academic_understanding",
+  student_performance: "academic_understanding",
+  confidence_trend: "engagement",
+  strengths: "engagement",
+  growth_areas: "academic_understanding",
+  homework_and_effort: "homework_consistency",
+  milestone_of_month: "academic_understanding",
+  parent_action_items: "communication",
+  next_steps: "academic_understanding",
+  recommended_resources: "communication",
+  at_home_action_plan: "communication",
+};
 
 function formatMonth(dateStr: string) {
   return new Date(dateStr).toLocaleDateString("en-IN", { month: "long", year: "numeric" });
@@ -35,12 +65,19 @@ export default function ReportPreviewPage({ params }: { params: Promise<{ id: st
   const [editDraft, setEditDraft] = useState<Record<string, unknown>>({});
   const [saving, setSaving] = useState(false);
 
+  // ── Tone state ──
+  const [warmth, setWarmth] = useState<ToneWarmth>("balanced");
+  const [detail, setDetail] = useState<ToneDetail>("balanced");
+  const [retoning, setRetoning] = useState(false);
+
   async function fetchReport() {
     setLoading(true);
     setError(null);
     try {
       const data = await api.reports.get(id);
       setReport(data);
+      if (data.tone_warmth) setWarmth(data.tone_warmth);
+      if (data.tone_detail) setDetail(data.tone_detail);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load report");
     } finally {
@@ -49,6 +86,35 @@ export default function ReportPreviewPage({ params }: { params: Promise<{ id: st
   }
 
   useEffect(() => { fetchReport(); }, [id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function applyTone(nextWarmth: ToneWarmth, nextDetail: ToneDetail) {
+    if (!report) return;
+    if (nextWarmth === report.tone_warmth && nextDetail === report.tone_detail) return;
+    setRetoning(true);
+    try {
+      const res = await api.reports.regenerateWithTone(id, {
+        warmth: nextWarmth,
+        detail: nextDetail,
+      });
+      setReport((prev) =>
+        prev
+          ? {
+              ...prev,
+              draft_content: res.draft_content,
+              tone_warmth: res.tone.warmth,
+              tone_detail: res.tone.detail,
+            }
+          : prev
+      );
+      setToast(`Re-rendered in ${nextWarmth} · ${nextDetail} tone.`);
+      setTimeout(() => setToast(null), 2200);
+    } catch (e) {
+      setToast(e instanceof Error ? e.message : "Tone change failed");
+      setTimeout(() => setToast(null), 3000);
+    } finally {
+      setRetoning(false);
+    }
+  }
 
   function startEditing() {
     if (!report) return;
@@ -162,6 +228,15 @@ export default function ReportPreviewPage({ params }: { params: Promise<{ id: st
 
   const d = (isEditing ? editDraft : report.draft_content) as PTMReport["draft_content"];
   const currentStatus = (localStatus ?? report.status) as typeof report.status;
+
+  // Bundle confidence + evidence for a given report section
+  function sectionProps(key: string) {
+    const subKey = SECTION_TO_CONFIDENCE[key];
+    const score =
+      subKey && d.ai_confidence ? d.ai_confidence.sections[subKey] : undefined;
+    const evidence = (d._evidence ?? {})[key];
+    return { confidence: score ?? null, evidence, sectionLabel: prettySection(key) };
+  }
 
   return (
     <div className="min-h-screen" style={{ background: "var(--ss-bg)" }}>
@@ -295,18 +370,21 @@ export default function ReportPreviewPage({ params }: { params: Promise<{ id: st
               </div>
             </div>
 
-            <InferredBlock title="Learning Coverage" icon={<BookOpen size={15} />} inferred={d.learning_coverage?.inferred ?? false}>
+            <InferredBlock title="Learning Coverage" icon={<BookOpen size={15} />} inferred={d.learning_coverage?.inferred ?? false} {...sectionProps("learning_coverage")}>
               <ul className="space-y-2.5">
-                {(d.learning_coverage?.topics ?? []).map((topic: string) => (
-                  <li key={topic} className="flex items-start gap-2.5 text-sm text-[var(--ss-i-700)]">
-                    <span className="mt-1.5 w-1.5 h-1.5 rounded-full bg-[var(--ss-o-400)] shrink-0" />
-                    {topic}
-                  </li>
-                ))}
+                {(d.learning_coverage?.topics ?? []).map((topic, idx) => {
+                  const t = asString(topic);
+                  return (
+                    <li key={`${t}-${idx}`} className="flex items-start gap-2.5 text-sm text-[var(--ss-i-700)]">
+                      <span className="mt-1.5 w-1.5 h-1.5 rounded-full bg-[var(--ss-o-400)] shrink-0" />
+                      {t}
+                    </li>
+                  );
+                })}
               </ul>
             </InferredBlock>
 
-            <InferredBlock title="Overall Performance" icon={<TrendingUp size={15} />} inferred={d.student_performance?.inferred ?? false}>
+            <InferredBlock title="Overall Performance" icon={<TrendingUp size={15} />} inferred={d.student_performance?.inferred ?? false} {...sectionProps("student_performance")}>
               <EditableText
                 editing={isEditing}
                 value={d.student_performance?.narrative ?? ""}
@@ -317,7 +395,7 @@ export default function ReportPreviewPage({ params }: { params: Promise<{ id: st
 
             {/* Confidence Trend */}
             {d.confidence_trend && (
-              <InferredBlock title="Confidence Trend" icon={<ChevronUp size={15} />} inferred={d.confidence_trend.inferred ?? false}>
+              <InferredBlock title="Confidence Trend" icon={<ChevronUp size={15} />} inferred={d.confidence_trend.inferred ?? false} {...sectionProps("confidence_trend")}>
                 <div className="flex items-center gap-2 mb-3">
                   {isEditing ? (
                     <select
@@ -350,7 +428,7 @@ export default function ReportPreviewPage({ params }: { params: Promise<{ id: st
 
             {/* Strengths */}
             {d.strengths && (
-              <InferredBlock title="Key Strengths" icon={<Star size={15} />} inferred={d.strengths.inferred ?? false}>
+              <InferredBlock title="Key Strengths" icon={<Star size={15} />} inferred={d.strengths.inferred ?? false} {...sectionProps("strengths")}>
                 {isEditing ? (
                   <EditableList
                     items={d.strengths.items ?? []}
@@ -360,10 +438,10 @@ export default function ReportPreviewPage({ params }: { params: Promise<{ id: st
                   />
                 ) : (
                   <ul className="space-y-3">
-                    {(d.strengths.items ?? []).map((item: string, i: number) => (
+                    {(d.strengths.items ?? []).map((item, i) => (
                       <li key={i} className="flex items-start gap-3 text-sm text-[var(--ss-i-700)]">
                         <span className="mt-0.5 w-5 h-5 rounded-full bg-[var(--ss-o-100)] flex items-center justify-center shrink-0"><Star size={10} className="text-[var(--ss-o-500)]" /></span>
-                        {item}
+                        {asString(item)}
                       </li>
                     ))}
                   </ul>
@@ -373,7 +451,7 @@ export default function ReportPreviewPage({ params }: { params: Promise<{ id: st
 
             {/* Growth Areas */}
             {d.growth_areas && (
-              <InferredBlock title="Areas to Grow" icon={<Target size={15} />} inferred={d.growth_areas.inferred ?? false}>
+              <InferredBlock title="Areas to Grow" icon={<Target size={15} />} inferred={d.growth_areas.inferred ?? false} {...sectionProps("growth_areas")}>
                 {isEditing ? (
                   <EditableList
                     items={d.growth_areas.items ?? []}
@@ -383,10 +461,10 @@ export default function ReportPreviewPage({ params }: { params: Promise<{ id: st
                   />
                 ) : (
                   <ul className="space-y-3">
-                    {(d.growth_areas.items ?? []).map((item: string, i: number) => (
+                    {(d.growth_areas.items ?? []).map((item, i) => (
                       <li key={i} className="flex items-start gap-3 text-sm text-[var(--ss-i-700)]">
                         <span className="mt-0.5 w-5 h-5 rounded-full bg-[var(--ss-i-100)] flex items-center justify-center shrink-0"><Target size={10} className="text-[var(--ss-i-500)]" /></span>
-                        {item}
+                        {asString(item)}
                       </li>
                     ))}
                   </ul>
@@ -396,7 +474,7 @@ export default function ReportPreviewPage({ params }: { params: Promise<{ id: st
 
             {/* Homework & Effort */}
             {d.homework_and_effort && (
-              <InferredBlock title="Homework & Effort" icon={<Pencil size={15} />} inferred={d.homework_and_effort.inferred ?? false}>
+              <InferredBlock title="Homework & Effort" icon={<Pencil size={15} />} inferred={d.homework_and_effort.inferred ?? false} {...sectionProps("homework_and_effort")}>
                 <EditableText
                   editing={isEditing}
                   value={d.homework_and_effort.narrative ?? ""}
@@ -435,7 +513,7 @@ export default function ReportPreviewPage({ params }: { params: Promise<{ id: st
 
             {/* Parent Action Items */}
             {d.parent_action_items && (
-              <InferredBlock title="What You Can Do at Home" icon={<Users size={15} />} inferred={d.parent_action_items.inferred ?? false}>
+              <InferredBlock title="What You Can Do at Home" icon={<Users size={15} />} inferred={d.parent_action_items.inferred ?? false} {...sectionProps("parent_action_items")}>
                 {isEditing ? (
                   <EditableList
                     items={d.parent_action_items.items ?? []}
@@ -445,12 +523,12 @@ export default function ReportPreviewPage({ params }: { params: Promise<{ id: st
                   />
                 ) : (
                   <ul className="space-y-3">
-                    {(d.parent_action_items.items ?? []).map((item: string, i: number) => (
+                    {(d.parent_action_items.items ?? []).map((item, i) => (
                       <li key={i} className="flex items-start gap-3 text-sm text-[var(--ss-i-700)]">
                         <span className="mt-0.5 w-5 h-5 rounded-full bg-[var(--ss-o-500)] flex items-center justify-center shrink-0 text-white text-[10px] font-bold">
                           {i + 1}
                         </span>
-                        {item}
+                        {asString(item)}
                       </li>
                     ))}
                   </ul>
@@ -458,8 +536,13 @@ export default function ReportPreviewPage({ params }: { params: Promise<{ id: st
               </InferredBlock>
             )}
 
+            {/* At-Home Action Plan (AI-generated) */}
+            {d.at_home_action_plan && d.at_home_action_plan.items.length > 0 && (
+              <ActionPlanCard items={d.at_home_action_plan.items} />
+            )}
+
             {/* Next Steps */}
-            <InferredBlock title="Next Steps" icon={<ArrowRight size={15} />} inferred={d.next_steps?.inferred ?? false}>
+            <InferredBlock title="Next Steps" icon={<ArrowRight size={15} />} inferred={d.next_steps?.inferred ?? false} {...sectionProps("next_steps")}>
               {isEditing ? (
                 <EditableList
                   items={d.next_steps?.topics ?? []}
@@ -469,19 +552,22 @@ export default function ReportPreviewPage({ params }: { params: Promise<{ id: st
                 />
               ) : (
                 <ul className="space-y-2.5">
-                  {(d.next_steps?.topics ?? []).map((topic: string) => (
-                    <li key={topic} className="flex items-start gap-2.5 text-sm text-[var(--ss-i-700)]">
-                      <span className="font-bold text-[var(--ss-o-500)] shrink-0 mt-0.5">→</span>
-                      {topic}
-                    </li>
-                  ))}
+                  {(d.next_steps?.topics ?? []).map((topic, idx) => {
+                    const t = asString(topic);
+                    return (
+                      <li key={`${t}-${idx}`} className="flex items-start gap-2.5 text-sm text-[var(--ss-i-700)]">
+                        <span className="font-bold text-[var(--ss-o-500)] shrink-0 mt-0.5">→</span>
+                        {t}
+                      </li>
+                    );
+                  })}
                 </ul>
               )}
             </InferredBlock>
 
             {/* Recommended Resources */}
             {d.recommended_resources && (
-              <InferredBlock title="Recommended Resources" icon={<Lightbulb size={15} />} inferred={d.recommended_resources.inferred ?? false}>
+              <InferredBlock title="Recommended Resources" icon={<Lightbulb size={15} />} inferred={d.recommended_resources.inferred ?? false} {...sectionProps("recommended_resources")}>
                 {isEditing ? (
                   <EditableList
                     items={d.recommended_resources.items ?? []}
@@ -491,12 +577,12 @@ export default function ReportPreviewPage({ params }: { params: Promise<{ id: st
                   />
                 ) : (
                   <ul className="space-y-3">
-                    {(d.recommended_resources.items ?? []).map((item: string, i: number) => (
+                    {(d.recommended_resources.items ?? []).map((item, i) => (
                       <li key={i} className="flex items-start gap-3 text-sm text-[var(--ss-i-700)]">
                         <span className="mt-0.5 w-5 h-5 rounded-full bg-[var(--ss-i-100)] flex items-center justify-center shrink-0">
                           <Lightbulb size={10} className="text-[var(--ss-i-500)]" />
                         </span>
-                        {item}
+                        {asString(item)}
                       </li>
                     ))}
                   </ul>
@@ -541,6 +627,47 @@ export default function ReportPreviewPage({ params }: { params: Promise<{ id: st
 
           {/* ── Sidebar ── */}
           <aside className="w-full lg:w-72 shrink-0 space-y-3 lg:sticky lg:top-24">
+            {d.ai_confidence && <ConfidencePanel confidence={d.ai_confidence} />}
+
+            <AudioSummaryCard reportId={id} hasScript={!!d.audio_script} />
+
+            {currentStatus === "pending" && (
+              <div className="bg-white rounded-2xl border border-[var(--ss-i-200)] shadow-[var(--ss-shadow)] p-5">
+                <div className="flex items-center justify-between mb-3">
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-[var(--ss-i-500)]">
+                    Humanization
+                  </p>
+                  {retoning && (
+                    <span className="flex items-center gap-1.5 text-[10px] font-semibold text-[var(--ss-o-600)]">
+                      <span className="w-3 h-3 rounded-full border-2 border-[var(--ss-o-300)] border-t-[var(--ss-o-600)] animate-spin" />
+                      Re-rendering…
+                    </span>
+                  )}
+                </div>
+                <div className="space-y-3">
+                  <ToneSelector
+                    value={warmth}
+                    disabled={retoning}
+                    onChange={(next) => {
+                      setWarmth(next);
+                      void applyTone(next, detail);
+                    }}
+                  />
+                  <DetailLevelSelector
+                    value={detail}
+                    disabled={retoning}
+                    onChange={(next) => {
+                      setDetail(next);
+                      void applyTone(warmth, next);
+                    }}
+                  />
+                </div>
+                <p className="text-[10px] text-[var(--ss-i-400)] mt-3 leading-relaxed">
+                  Tone changes regenerate the report instantly — they don&apos;t count toward your 2-cycle revision limit.
+                </p>
+              </div>
+            )}
+
             <div className="bg-white rounded-2xl border border-[var(--ss-i-200)] shadow-[var(--ss-shadow)] p-5">
               <div className="mb-4"><StatusBadge status={currentStatus as typeof report.status} /></div>
               <p className="text-base font-bold text-[var(--ss-i-900)] mb-0.5" style={{ fontFamily: "var(--font-jakarta)" }}>{report.student_name}</p>
@@ -613,6 +740,16 @@ export default function ReportPreviewPage({ params }: { params: Promise<{ id: st
               </div>
             </div>
 
+            {report.regeneration_count > 0 && (
+              <Link
+                href={`/ptm/${id}/diff`}
+                className="flex items-center justify-center gap-2 w-full py-2.5 rounded-xl border border-[var(--ss-i-200)] bg-white text-xs text-[var(--ss-i-500)] hover:text-[var(--ss-i-700)] hover:border-[var(--ss-i-300)] transition-colors shadow-[var(--ss-shadow)]"
+              >
+                <RotateCcw size={13} />
+                View regeneration diff
+              </Link>
+            )}
+
             <Link
               href={`/ptm/${id}/print`}
               className="flex items-center justify-center gap-2 w-full py-2.5 rounded-xl border border-[var(--ss-i-200)] bg-white text-xs text-[var(--ss-i-500)] hover:text-[var(--ss-i-700)] hover:border-[var(--ss-i-300)] transition-colors shadow-[var(--ss-shadow)]"
@@ -631,6 +768,25 @@ function SectionLabel({ label }: { label: string }) {
   return <h2 className="text-xs font-bold text-[var(--ss-i-500)] uppercase tracking-widest">{label}</h2>;
 }
 
+function prettySection(key: string): string {
+  return key
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+/** Coerce list items to strings — Gemini occasionally returns objects in fields meant to be strings. */
+function asString(item: unknown): string {
+  if (typeof item === "string") return item;
+  if (item && typeof item === "object") {
+    const o = item as Record<string, unknown>;
+    const name = (o.name ?? o.title ?? o.topic) as string | undefined;
+    const desc = (o.description ?? o.detail) as string | undefined;
+    if (name && desc) return `${name} — ${desc}`;
+    return name ?? desc ?? JSON.stringify(item);
+  }
+  return String(item ?? "");
+}
+
 function MiniStatCard({ label, value, highlight }: { label: string; value: string | number; highlight?: boolean }) {
   return (
     <div className={`text-center p-4 rounded-xl ${highlight ? "bg-[var(--ss-o-50)] border border-[var(--ss-o-200)]" : "bg-[var(--ss-i-100)]"}`}>
@@ -640,26 +796,66 @@ function MiniStatCard({ label, value, highlight }: { label: string; value: strin
   );
 }
 
-function InferredBlock({ title, icon, inferred, children }: { title: string; icon: React.ReactNode; inferred: boolean; children: React.ReactNode }) {
+function InferredBlock({
+  title,
+  icon,
+  inferred,
+  children,
+  confidence,
+  evidence,
+  sectionLabel,
+}: {
+  title: string;
+  icon: React.ReactNode;
+  inferred: boolean;
+  children: React.ReactNode;
+  confidence?: number | null;
+  evidence?: Evidence[];
+  sectionLabel?: string;
+}) {
+  const tier = confidence != null ? confidenceTier(confidence) : null;
+  const lowConfPulse = inferred && tier === "low";
+
   return (
-    <div className={`rounded-2xl border shadow-[var(--ss-shadow)] p-6 md:p-7 ${inferred ? "bg-[var(--ss-o-50)] border-[var(--ss-o-200)]" : "bg-white border-[var(--ss-i-200)]"}`}>
-      <div className="flex items-center justify-between mb-4">
-        <div className="flex items-center gap-2">
+    <div
+      className={`rounded-2xl border shadow-[var(--ss-shadow)] p-6 md:p-7 ${
+        inferred ? "bg-[var(--ss-o-50)] border-[var(--ss-o-200)]" : "bg-white border-[var(--ss-i-200)]"
+      } ${lowConfPulse ? "animate-pulse-soft" : ""}`}
+    >
+      <div className="flex items-center justify-between mb-4 gap-3">
+        <div className="flex items-center gap-2 min-w-0">
           <span className={inferred ? "text-[var(--ss-o-500)]" : "text-[var(--ss-i-400)]"}>{icon}</span>
           <SectionLabel label={title} />
         </div>
-        {inferred && (
-          <div className="group relative">
-            <div className="flex items-center gap-1 text-xs font-semibold text-[var(--ss-o-600)] cursor-help">
-              <Info size={12} /><span className="hidden sm:inline">Inferred</span>
+        <div className="flex items-center gap-2 shrink-0">
+          {confidence != null && (
+            <ConfidenceBadge score={confidence} size="sm" pulse={inferred} />
+          )}
+          {inferred && (
+            <div className="group relative">
+              <div className="flex items-center gap-1 text-xs font-semibold text-[var(--ss-o-600)] cursor-help">
+                <Info size={12} /><span className="hidden sm:inline">Inferred</span>
+              </div>
+              <div className="absolute right-0 bottom-full mb-2 w-56 p-2.5 bg-[var(--ss-i-900)] text-white text-xs rounded-xl opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10 shadow-lg leading-relaxed">
+                Agent inferred this from class summaries — verify before approving.
+              </div>
             </div>
-            <div className="absolute right-0 bottom-full mb-2 w-56 p-2.5 bg-[var(--ss-i-900)] text-white text-xs rounded-xl opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10 shadow-lg leading-relaxed">
-              Agent inferred this from class summaries — verify before approving.
-            </div>
-          </div>
-        )}
+          )}
+        </div>
       </div>
+      {confidence != null && (
+        <div className="mb-4 -mt-1">
+          <ConfidenceMeter score={confidence} compact />
+        </div>
+      )}
       {children}
+      {evidence && evidence.length > 0 && (
+        <ExplainabilityPanel
+          evidence={evidence}
+          inferred={inferred}
+          sectionLabel={sectionLabel ?? title}
+        />
+      )}
     </div>
   );
 }
