@@ -4,10 +4,11 @@ import { useState, useEffect, use } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   ArrowLeft, Calendar, CheckSquare, Square, Loader2, AlertCircle,
-  ChevronRight, Sparkles, BookOpen,
+  ChevronRight, Sparkles, BookOpen, Brain,
 } from "lucide-react";
 import Link from "next/link";
 import Navbar from "@/app/components/Navbar";
+import CopilotPanel from "@/app/components/CopilotPanel";
 import { api, type SessionInfo, type GenerateFromSessionsBody } from "@/app/lib/api";
 
 const ENGAGEMENT_OPTIONS = [
@@ -136,22 +137,31 @@ export default function StudentSessionPage({ params }: { params: Promise<PagePar
         </Link>
 
         {/* Student header */}
-        <div className="flex items-center gap-4 mb-8">
-          <div className="w-14 h-14 rounded-2xl bg-[var(--ss-o-100)] flex items-center justify-center shrink-0">
-            <span className="text-[var(--ss-o-700)] font-bold text-lg" style={{ fontFamily: "var(--font-jakarta)" }}>
-              {initials}
-            </span>
-          </div>
-          <div>
-            <h1 className="text-2xl font-extrabold text-[var(--ss-i-900)]" style={{ fontFamily: "var(--font-jakarta)" }}>
-              {studentName || "Student"}
-            </h1>
-            <div className="flex items-center gap-2 mt-0.5">
-              <span className="px-2 py-0.5 rounded-md bg-[var(--ss-i-100)] text-[var(--ss-i-600)] text-xs font-medium">{subject}</span>
-              <span className="text-xs text-[var(--ss-i-400)]">·</span>
-              <span className="text-xs text-[var(--ss-i-400)]">{teacherName}</span>
+        <div className="flex items-start justify-between gap-4 mb-8 flex-wrap">
+          <div className="flex items-center gap-4">
+            <div className="w-14 h-14 rounded-2xl bg-[var(--ss-o-100)] flex items-center justify-center shrink-0">
+              <span className="text-[var(--ss-o-700)] font-bold text-lg" style={{ fontFamily: "var(--font-jakarta)" }}>
+                {initials}
+              </span>
+            </div>
+            <div>
+              <h1 className="text-2xl font-extrabold text-[var(--ss-i-900)]" style={{ fontFamily: "var(--font-jakarta)" }}>
+                {studentName || "Student"}
+              </h1>
+              <div className="flex items-center gap-2 mt-0.5">
+                <span className="px-2 py-0.5 rounded-md bg-[var(--ss-i-100)] text-[var(--ss-i-600)] text-xs font-medium">{subject}</span>
+                <span className="text-xs text-[var(--ss-i-400)]">·</span>
+                <span className="text-xs text-[var(--ss-i-400)]">{teacherName}</span>
+              </div>
             </div>
           </div>
+          <Link
+            href={`/ptm/students/${student_id}/knowledge`}
+            className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-full bg-[var(--ss-i-900)] text-white text-xs font-semibold hover:bg-black transition-colors shadow-[0_8px_24px_rgba(15,17,21,.18)]"
+          >
+            <Brain size={13} />
+            Knowledge dashboard
+          </Link>
         </div>
 
         {/* ── Step 1: Session picker ─────────────────────────────────────────── */}
@@ -339,6 +349,8 @@ export default function StudentSessionPage({ params }: { params: Promise<PagePar
           )}
         </div>
       </main>
+
+      <CopilotPanel studentId={student_id} studentName={studentName} />
     </div>
   );
 }
