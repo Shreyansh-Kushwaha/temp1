@@ -1,8 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
-import { FileText, AlertTriangle, Clock, PlusCircle } from "lucide-react";
+import { usePathname, useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
+import { AlertTriangle, Clock, PlusCircle, LogOut, Shield } from "lucide-react";
+import { getAuth, clearAuth, type AuthState } from "@/app/lib/auth";
 
 const NAV_LINKS = [
   { href: "/ptm", label: "Generate", Icon: PlusCircle },
@@ -12,6 +14,35 @@ const NAV_LINKS = [
 
 export default function Navbar() {
   const pathname = usePathname();
+  const router = useRouter();
+  const [auth, setAuthState] = useState<AuthState | null>(null);
+
+  useEffect(() => {
+    setAuthState(getAuth());
+    const handler = () => setAuthState(getAuth());
+    window.addEventListener("ptm:auth-change", handler);
+    window.addEventListener("storage", handler);
+    return () => {
+      window.removeEventListener("ptm:auth-change", handler);
+      window.removeEventListener("storage", handler);
+    };
+  }, []);
+
+  function handleLogout() {
+    clearAuth();
+    router.replace("/login");
+  }
+
+  const displayName =
+    auth?.role === "admin" ? "Administrator" : auth?.teacher_name ?? "Guest";
+  const subline = auth?.role === "admin" ? "All-access" : "Class Teacher";
+  const initials = (displayName || "?")
+    .split(" ")
+    .map((w) => w[0])
+    .filter(Boolean)
+    .slice(0, 2)
+    .join("")
+    .toUpperCase();
 
   const isActive = (href: string) => {
     if (href === "/ptm") return pathname === "/ptm" || pathname.startsWith("/ptm/students");
@@ -51,21 +82,43 @@ export default function Navbar() {
               }`}
             >
               <Icon size={14} />
-              <span className="hidden xs:inline">{label}</span>
+              <span>{label}</span>
             </Link>
           );
         })}
       </div>
 
-      {/* Teacher avatar */}
+      {/* User + logout */}
       <div className="ml-auto flex items-center gap-2.5">
         <div className="hidden md:flex flex-col items-end leading-none">
-          <span className="text-xs font-semibold text-[var(--ss-i-700)]">Ms. Priya Sharma</span>
-          <span className="text-[10px] text-[var(--ss-i-400)]">Class Teacher</span>
+          <span className="text-xs font-semibold text-[var(--ss-i-700)] flex items-center gap-1.5">
+            {auth?.role === "admin" && <Shield size={11} className="text-[var(--ss-o-500)]" />}
+            {displayName}
+          </span>
+          <span className="text-[10px] text-[var(--ss-i-400)]">{subline}</span>
         </div>
-        <div className="w-8 h-8 rounded-full bg-[var(--ss-o-500)] flex items-center justify-center shadow-[var(--ss-shadow-brand)]">
-          <span className="text-white font-bold text-xs" style={{ fontFamily: "var(--font-jakarta)" }}>PS</span>
+        <div
+          className={`w-8 h-8 rounded-full flex items-center justify-center shadow-[var(--ss-shadow-brand)] ${
+            auth?.role === "admin"
+              ? "bg-gradient-to-br from-[var(--ss-i-900)] to-[var(--ss-o-700)]"
+              : "bg-[var(--ss-o-500)]"
+          }`}
+        >
+          <span className="text-white font-bold text-xs" style={{ fontFamily: "var(--font-jakarta)" }}>
+            {initials || "?"}
+          </span>
         </div>
+        {auth && (
+          <button
+            type="button"
+            onClick={handleLogout}
+            className="p-1.5 rounded-full text-[var(--ss-i-400)] hover:bg-[var(--ss-i-100)] hover:text-[var(--ss-i-700)] transition-colors"
+            title="Sign out"
+            aria-label="Sign out"
+          >
+            <LogOut size={14} />
+          </button>
+        )}
       </div>
     </nav>
   );
