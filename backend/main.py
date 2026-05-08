@@ -1,16 +1,21 @@
+import logging
 import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 
 from dotenv import load_dotenv
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 load_dotenv()
 
 from db.connection import run_migrations
 from routers.ptm import router as ptm_router
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("ptm")
 
 
 @asynccontextmanager
@@ -26,13 +31,25 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# Allow localhost + any *.vercel.app deploy + an explicit FRONTEND_URL override.
+_explicit = [o for o in ("http://localhost:3000", os.getenv("FRONTEND_URL", "")) if o]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", os.getenv("FRONTEND_URL", "")],
+    allow_origins=_explicit,
+    allow_origin_regex=r"https://.*\.vercel\.app",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    logger.exception("Unhandled error on %s %s", request.method, request.url.path)
+    return JSONResponse(
+        status_code=500,
+        content={"detail": f"{type(exc).__name__}: {exc}"},
+    )
 
 app.include_router(ptm_router)
 
