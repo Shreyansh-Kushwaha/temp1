@@ -13,7 +13,8 @@ import type {
   StudentConcept,
 } from "@/app/lib/mock-data";
 
-const BASE = "";
+const BASE =
+  process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 export interface QuestionnaireSubmission {
   engagement_rating?: number;
