@@ -5,6 +5,155 @@ export interface InferredField {
   inferred: boolean;
 }
 
+// ─── Phase 1: Confidence + Evidence + Action Plan + Tone ───
+
+export type ToneWarmth = "warm" | "balanced" | "formal";
+export type ToneDetail = "concise" | "balanced" | "detailed";
+
+export interface ToneSettings {
+  warmth: ToneWarmth;
+  detail: ToneDetail;
+}
+
+export type ConfidenceSectionKey =
+  | "attendance"
+  | "engagement"
+  | "academic_understanding"
+  | "homework_consistency"
+  | "communication";
+
+export interface AIConfidence {
+  overall: number; // 0–100
+  sections: Record<ConfidenceSectionKey, number>;
+}
+
+export type EvidenceType =
+  | "transcript"
+  | "teacher_override"
+  | "attendance_data"
+  | "session_summary";
+
+export interface Evidence {
+  type: EvidenceType;
+  session_date: string | null;
+  session_id: string | null;
+  snippet: string;
+}
+
+export type ActionPlanCategory = "practice" | "communication" | "confidence" | "study";
+export type ActionPlanIcon =
+  | "book"
+  | "message-circle"
+  | "sparkles"
+  | "target"
+  | "users"
+  | "heart";
+
+export interface ActionPlanItem {
+  title: string;
+  category: ActionPlanCategory;
+  icon: ActionPlanIcon;
+  description: string;
+}
+
+// ─── Phase 2 types ───
+
+export interface AudioSummary {
+  id: string;
+  provider: "browser" | "huggingface";
+  script: string;
+  audio_url: string | null;
+  duration_seconds: number | null;
+  voice: string | null;
+}
+
+export interface ReportVersionMeta {
+  id: string;
+  version_number: number;
+  trigger: "initial" | "regenerate" | "edit" | "tone_change" | string;
+  notes: string | null;
+  created_at: string;
+}
+
+export interface ReportVersion extends ReportVersionMeta {
+  draft_content: ReportDraft;
+  report_id: string;
+}
+
+export type RiskSignalType =
+  | "attendance_drop"
+  | "confidence_decline"
+  | "engagement_drop"
+  | "recurring_weakness"
+  | "homework_inconsistency"
+  | "burnout";
+
+export type RiskSeverity = "low" | "medium" | "high";
+
+export interface RiskSignal {
+  id: string;
+  student_id: string;
+  report_id: string | null;
+  signal_type: RiskSignalType;
+  severity: RiskSeverity;
+  trend: "up" | "down" | "flat" | null;
+  delta: number | null;
+  description: string;
+  evidence: Array<Record<string, unknown>>;
+  resolved_at: string | null;
+  created_at: string;
+}
+
+export interface StudentRiskGroup {
+  student_id: string;
+  student_name: string | null;
+  subject: string | null;
+  highest_severity: RiskSeverity;
+  signals: RiskSignal[];
+}
+
+// ─── Phase 3 types ───
+
+export interface CopilotMessage {
+  id: string;
+  student_id: string;
+  conversation_id: string;
+  role: "user" | "assistant";
+  content: string;
+  created_at: string;
+}
+
+export interface StudentConcept {
+  id: string;
+  student_id: string;
+  subject: string;
+  concept: string;
+  mastery_score: number;
+  status: "learning" | "mastered" | "weak" | "struggling";
+  first_seen_at: string;
+  last_seen_at: string;
+}
+
+export interface KnowledgeConceptEntry {
+  concept: string;
+  mastery_score: number;
+  status: "mastered" | "learning" | "weak";
+  last_month: string | null;
+  appearances: number;
+}
+
+export interface KnowledgeSummary {
+  student_id: string;
+  student_name: string | null;
+  subject: string | null;
+  attendance_trend: { month: string | null; attendance_pct: number | null }[];
+  confidence_trend: { month: string | null; overall_confidence: number | null }[];
+  concepts: KnowledgeConceptEntry[];
+  concept_summary: { total: number; mastered: number; learning: number; weak: number };
+  learning_velocity: number;
+  report_count: number;
+}
+
 export interface ReportDraft {
   header: {
     student_name: string;
@@ -62,7 +211,14 @@ export interface ReportDraft {
   };
   encouragement_message?: string;
   teacher_note: string | null;
+  at_home_action_plan?: {
+    items: ActionPlanItem[];
+    inferred: boolean;
+  };
+  audio_script?: string;
+  ai_confidence?: AIConfidence;
   _inferred_fields: string[];
+  _evidence?: Partial<Record<string, Evidence[]>>;
 }
 
 export interface PTMReport {
@@ -79,6 +235,10 @@ export interface PTMReport {
   regeneration_count: number;
   created_at: string;
   updated_at: string;
+  overall_confidence?: number | null;
+  tone_warmth?: ToneWarmth;
+  tone_detail?: ToneDetail;
+  audio_url?: string | null;
 }
 
 export interface QuestionnaireQuestion {
