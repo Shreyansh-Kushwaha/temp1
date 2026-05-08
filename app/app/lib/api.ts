@@ -1,4 +1,17 @@
-import type { PTMReport, QuestionnaireQuestion } from "@/app/lib/mock-data";
+import type {
+  PTMReport,
+  QuestionnaireQuestion,
+  ToneSettings,
+  ReportDraft,
+  AudioSummary,
+  ReportVersionMeta,
+  ReportVersion,
+  StudentRiskGroup,
+  RiskSignal,
+  CopilotMessage,
+  KnowledgeSummary,
+  StudentConcept,
+} from "@/app/lib/mock-data";
 
 const BASE = "";
 
@@ -9,6 +22,7 @@ export interface QuestionnaireSubmission {
   topics_correction?: string;
   next_month_topics?: string[];
   free_form_note?: string;
+  tone?: Partial<ToneSettings>;
 }
 
 export interface StudentSummary {
@@ -39,6 +53,7 @@ export interface GenerateFromSessionsBody {
   improvement_areas?: string;
   parent_note?: string;
   next_month_goals?: string[];
+  tone?: Partial<ToneSettings>;
 }
 
 async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
@@ -127,6 +142,95 @@ export const api = {
         method: "POST",
         body: JSON.stringify(body),
       });
+    },
+
+    regenerateWithTone(
+      id: string,
+      tone: Partial<ToneSettings>
+    ): Promise<{ status: string; draft_content: ReportDraft; tone: ToneSettings }> {
+      return apiFetch(`/api/ptm/reports/${id}/regenerate-tone`, {
+        method: "POST",
+        body: JSON.stringify({ tone }),
+      });
+    },
+
+    listVersions(id: string): Promise<ReportVersionMeta[]> {
+      return apiFetch(`/api/ptm/reports/${id}/versions`);
+    },
+
+    getVersion(id: string, n: number): Promise<ReportVersion> {
+      return apiFetch(`/api/ptm/reports/${id}/versions/${n}`);
+    },
+
+    diff(
+      id: string,
+      params?: { before?: number; after?: number }
+    ): Promise<{ before: ReportVersion | null; after: ReportVersion }> {
+      const qs = new URLSearchParams();
+      if (params?.before != null) qs.set("before", String(params.before));
+      if (params?.after != null) qs.set("after", String(params.after));
+      const query = qs.toString() ? `?${qs}` : "";
+      return apiFetch(`/api/ptm/reports/${id}/diff${query}`);
+    },
+
+    audioSummary(id: string): Promise<AudioSummary | null> {
+      return apiFetch(`/api/ptm/reports/${id}/audio-summary`);
+    },
+
+    createAudioSummary(id: string, voice?: string): Promise<AudioSummary> {
+      return apiFetch(`/api/ptm/reports/${id}/audio-summary`, {
+        method: "POST",
+        body: JSON.stringify({ voice: voice ?? null }),
+      });
+    },
+  },
+
+  risk: {
+    recompute(): Promise<{ students_checked: number; active_signals: number }> {
+      return apiFetch("/api/ptm/risk/recompute", { method: "POST" });
+    },
+
+    studentsAtRisk(severity?: "low" | "medium" | "high"): Promise<StudentRiskGroup[]> {
+      const qs = severity ? `?severity=${severity}` : "";
+      return apiFetch(`/api/ptm/risk/students-at-risk${qs}`);
+    },
+
+    forStudent(studentId: string): Promise<RiskSignal[]> {
+      return apiFetch(`/api/ptm/risk/students/${studentId}`);
+    },
+  },
+
+  copilot: {
+    send(body: {
+      student_id: string;
+      message: string;
+      conversation_id?: string;
+    }): Promise<{ conversation_id: string; reply: string; suggested_prompts: string[] }> {
+      return apiFetch("/api/ptm/copilot/message", {
+        method: "POST",
+        body: JSON.stringify(body),
+      });
+    },
+
+    history(
+      student_id: string,
+      conversation_id?: string,
+      limit = 50
+    ): Promise<CopilotMessage[]> {
+      const qs = new URLSearchParams({ student_id, limit: String(limit) });
+      if (conversation_id) qs.set("conversation_id", conversation_id);
+      return apiFetch(`/api/ptm/copilot/history?${qs}`);
+    },
+  },
+
+  knowledge: {
+    summary(student_id: string): Promise<KnowledgeSummary> {
+      return apiFetch(`/api/ptm/students/${student_id}/knowledge-summary`);
+    },
+
+    concepts(student_id: string, subject?: string): Promise<StudentConcept[]> {
+      const qs = subject ? `?subject=${encodeURIComponent(subject)}` : "";
+      return apiFetch(`/api/ptm/students/${student_id}/concepts${qs}`);
     },
   },
 
