@@ -7,10 +7,7 @@ httpx==0.28.1
 motor==3.6.0
 gtts==2.5.4
 supabase==2.30.0
-# playwright is used only for server-side PDF rendering. On Render's free tier
-# Chromium can't be installed and Playwright's transitive dep `greenlet` lacks
-# Python 3.14 wheels (forces a source compile that breaks against the new
-# _PyInterpreterFrame struct). Keep it disabled in prod; enable locally with:
-#   pip install playwright==1.49.1 && playwright install chromium
-# pdf_service.py lazy-imports playwright so the backend boots fine without it.
-# playwright==1.49.1
+# Server-side PDF rendering. Safe on Python 3.12 (greenlet has prebuilt
+# cp312 wheels — no source compile). pdf_service.py lazy-imports it so the
+# backend boots fine even if the chromium browser binary isn't available.
+playwright==1.49.1
