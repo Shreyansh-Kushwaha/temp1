@@ -27,7 +27,8 @@ import {
   type AIConfidence,
 } from "@/app/lib/mock-data";
 import { confidenceTier } from "@/app/lib/confidence";
-import { api } from "@/app/lib/api";
+import { api, ApiError } from "@/app/lib/api";
+import { useToast } from "@/app/components/ToastProvider";
 
 // Maps each report section to the AI-confidence sub-score that best reflects it.
 const SECTION_TO_CONFIDENCE: Record<string, keyof AIConfidence["sections"] | undefined> = {
@@ -60,6 +61,7 @@ export default function ReportPreviewPage({ params }: { params: Promise<{ id: st
   const [delivering, setDelivering] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [localStatus, setLocalStatus] = useState<string | null>(null);
+  const globalToast = useToast();
 
   // ── Editing state ──
   const [isEditing, setIsEditing] = useState(false);
@@ -110,8 +112,18 @@ export default function ReportPreviewPage({ params }: { params: Promise<{ id: st
       setToast(`Re-rendered in ${nextWarmth} · ${nextDetail} tone.`);
       setTimeout(() => setToast(null), 2200);
     } catch (e) {
-      setToast(e instanceof Error ? e.message : "Tone change failed");
-      setTimeout(() => setToast(null), 3000);
+      const msg =
+        e instanceof ApiError && e.status === 429
+          ? e.detail || "AI quota reached — please try again in a minute."
+          : e instanceof Error
+            ? e.message
+            : "Tone change failed";
+      if (e instanceof ApiError && e.status === 429) {
+        globalToast.error(msg);
+      } else {
+        setToast(msg);
+        setTimeout(() => setToast(null), 3000);
+      }
     } finally {
       setRetoning(false);
     }

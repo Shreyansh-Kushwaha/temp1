@@ -9,7 +9,8 @@ import {
 import Link from "next/link";
 import Navbar from "@/app/components/Navbar";
 import CopilotPanel from "@/app/components/CopilotPanel";
-import { api, type SessionInfo, type GenerateFromSessionsBody } from "@/app/lib/api";
+import { api, ApiError, type SessionInfo, type GenerateFromSessionsBody } from "@/app/lib/api";
+import { useToast } from "@/app/components/ToastProvider";
 
 const ENGAGEMENT_OPTIONS = [
   { value: "Highly engaged — asked questions and contributed actively", label: "Highly Engaged" },
@@ -61,6 +62,7 @@ export default function StudentSessionPage({ params }: { params: Promise<PagePar
 
   const [generating, setGenerating] = useState(false);
   const [generateError, setGenerateError] = useState<string | null>(null);
+  const toast = useToast();
 
   useEffect(() => {
     if (!student_id) return;
@@ -110,7 +112,14 @@ export default function StudentSessionPage({ params }: { params: Promise<PagePar
       const result = await api.reports.generateFromSessions(body);
       router.push(`/ptm/${result.report_id}?generated=1`);
     } catch (e) {
-      setGenerateError(e instanceof Error ? e.message : "Failed to generate report");
+      const msg =
+        e instanceof ApiError && e.status === 429
+          ? e.detail || "AI quota reached — please try again in a minute."
+          : e instanceof Error
+            ? e.message
+            : "Failed to generate report";
+      setGenerateError(msg);
+      toast.error(msg);
       setGenerating(false);
     }
   }

@@ -6,7 +6,8 @@ import Link from "next/link";
 import { ArrowLeft, ArrowRight, X, ChevronRight, AlertCircle, RefreshCw } from "lucide-react";
 import Navbar from "@/app/components/Navbar";
 import { type QuestionnaireQuestion } from "@/app/lib/mock-data";
-import { api } from "@/app/lib/api";
+import { api, ApiError } from "@/app/lib/api";
+import { useToast } from "@/app/components/ToastProvider";
 
 const SUGGESTED_TOPICS = [
   "Quadratic formula", "Graphing parabolas", "Polynomials", "Analytical writing",
@@ -29,6 +30,7 @@ export default function QuestionnairePage({ params }: { params: Promise<{ id: st
   const [nextMonthTopics, setNextMonthTopics] = useState<string[]>([]);
   const [freeForm, setFreeForm] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const toast = useToast();
 
   async function fetchQuestions() {
     setLoading(true);
@@ -139,8 +141,16 @@ export default function QuestionnairePage({ params }: { params: Promise<{ id: st
       } else {
         router.push(`/ptm/${id}`);
       }
-    } catch {
-      router.push(`/ptm/${id}`);
+    } catch (e) {
+      const msg =
+        e instanceof ApiError && e.status === 429
+          ? e.detail || "AI quota reached — please try again in a minute."
+          : e instanceof Error
+            ? e.message
+            : "Failed to regenerate report";
+      toast.error(msg);
+      setSubmitting(false);
+      return;
     }
   }
 
