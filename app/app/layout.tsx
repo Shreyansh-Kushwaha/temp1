@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Inter, Plus_Jakarta_Sans } from "next/font/google";
 import "./globals.css";
 import AuthGate from "@/app/components/AuthGate";
+import BackendStatusIndicator from "@/app/components/BackendStatusIndicator";
 import { ToastProvider } from "@/app/components/ToastProvider";
 
 const inter = Inter({
@@ -32,6 +33,7 @@ export default function RootLayout({
       <body className="min-h-full flex flex-col">
         <ToastProvider>
           <AuthGate>{children}</AuthGate>
+          <BackendStatusIndicator />
         </ToastProvider>
       </body>
     </html>
