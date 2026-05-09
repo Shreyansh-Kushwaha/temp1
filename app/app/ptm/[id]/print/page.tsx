@@ -6,7 +6,7 @@ const ALL_MOCK_REPORTS = [...MOCK_REPORTS, ...MOCK_ESCALATED];
 async function fetchReport(id: string): Promise<PTMReport | undefined> {
   // Server component — try the live backend first, fall back to mocks.
   try {
-    const base = process.env.PTM_API_URL ?? "http://localhost:8000";
+    const base = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
     const res = await fetch(`${base}/api/ptm/reports/${id}`, { cache: "no-store" });
     if (res.ok) return (await res.json()) as PTMReport;
   } catch {
