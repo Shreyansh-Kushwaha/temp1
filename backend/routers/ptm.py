@@ -286,7 +286,7 @@ async def set_teacher_auto_generate(body: AutoGenerateToggleBody):
                ON CONFLICT(teacher_name) DO UPDATE SET
                  auto_generate_enabled=excluded.auto_generate_enabled,
                  updated_at=excluded.updated_at""",
-            [body.teacher_name, 1 if body.enabled else 0, ts],
+            [body.teacher_name, body.enabled, ts],
         )
         await db.commit()
         return {"teacher_name": body.teacher_name, "auto_generate_enabled": body.enabled}
@@ -324,7 +324,7 @@ async def auto_generate_run(
     try:
         # Pre-fetch the opt-in set ONCE for the whole run.
         async with db.execute(
-            "SELECT teacher_name FROM ptm_teacher_settings WHERE auto_generate_enabled = 1"
+            "SELECT teacher_name FROM ptm_teacher_settings WHERE auto_generate_enabled = TRUE"
         ) as cur:
             opted_in = {r["teacher_name"] for r in await cur.fetchall()}
         logger.info("auto_generate: %d teacher(s) opted in for month=%s", len(opted_in), month)
@@ -442,7 +442,8 @@ async def list_reports(status: str | None = None, teacher_id: str | None = None,
             clauses.append("teacher_id = ?")
             params.append(teacher_id)
         if teacher_name:
-            clauses.append("json_extract(draft_content, '$.header.teacher_name') = ?")
+            # Postgres JSONB path query — draft_content is stored as TEXT, cast at read time
+            clauses.append("(draft_content::jsonb)->'header'->>'teacher_name' = ?")
             params.append(teacher_name)
         where = " AND ".join(clauses)
         async with db.execute(f"SELECT * FROM ptm_reports WHERE {where} ORDER BY created_at DESC", params) as cur:
@@ -540,6 +541,22 @@ async def approve_report(report_id: str, body: ApproveBody, background_tasks: Ba
         await db.commit()
         background_tasks.add_task(pdf_service.generate_and_store_pdf, report_id, approved_version)
         return {"status": "approved", "delivered_via": ["email", "whatsapp"]}
+    finally:
+        await db.close()
+
+
+@router.delete("/reports/{report_id}")
+async def delete_report(report_id: str):
+    db = await get_db()
+    try:
+        async with db.execute("SELECT id FROM ptm_reports WHERE id = ? AND deleted_at IS NULL", [report_id]) as cur:
+            row = await cur.fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Report not found")
+        ts = now_iso()
+        await db.execute("UPDATE ptm_reports SET deleted_at=? WHERE id=?", [ts, report_id])
+        await db.commit()
+        return {"status": "deleted"}
     finally:
         await db.close()
 
