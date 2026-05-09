@@ -2,7 +2,7 @@
 
 import { useState, useMemo, useEffect, useCallback } from "react";
 import Link from "next/link";
-import { Bell, ChevronRight, Check, FileText, Clock, CheckCircle2, Send, AlertCircle, RefreshCw, ChevronDown } from "lucide-react";
+import { Bell, ChevronRight, Check, FileText, Clock, CheckCircle2, Send, AlertCircle, RefreshCw, ChevronDown, Trash2 } from "lucide-react";
 import Navbar from "@/app/components/Navbar";
 import StatusBadge from "@/app/components/StatusBadge";
 import StudentsAtRiskSection from "@/app/components/StudentsAtRiskSection";
@@ -46,6 +46,8 @@ export default function PendingPage() {
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<FilterTab>("all");
   const [approvingId, setApprovingId] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [teachers, setTeachers] = useState<string[]>([]);
   const [selectedTeacher, setSelectedTeacher] = useState<string>("");
   const [isAdminUser, setIsAdminUser] = useState(false);
@@ -98,6 +100,19 @@ export default function PendingPage() {
       // ignore transient errors
     } finally {
       setApprovingId(null);
+    }
+  }
+
+  async function deleteReport(id: string) {
+    setDeletingId(id);
+    try {
+      await api.reports.delete(id);
+      setReports((prev) => prev.filter((r) => r.id !== id));
+    } catch {
+      // ignore transient errors
+    } finally {
+      setDeletingId(null);
+      setConfirmDeleteId(null);
     }
   }
 
@@ -277,6 +292,7 @@ export default function PendingPage() {
                   <tr className="bg-[var(--ss-i-100)] border-b border-[var(--ss-i-200)]">
                     <th className="text-left py-3 px-5 font-semibold text-[var(--ss-i-500)] text-xs uppercase tracking-wide">Student</th>
                     <th className="text-left py-3 px-5 font-semibold text-[var(--ss-i-500)] text-xs uppercase tracking-wide">Subject</th>
+                    <th className="text-left py-3 px-5 font-semibold text-[var(--ss-i-500)] text-xs uppercase tracking-wide hidden lg:table-cell">Teacher</th>
                     <th className="text-left py-3 px-5 font-semibold text-[var(--ss-i-500)] text-xs uppercase tracking-wide hidden md:table-cell">Month</th>
                     <th className="text-left py-3 px-5 font-semibold text-[var(--ss-i-500)] text-xs uppercase tracking-wide">Status</th>
                     <th className="text-left py-3 px-5 font-semibold text-[var(--ss-i-500)] text-xs uppercase tracking-wide hidden lg:table-cell">AI&nbsp;Conf.</th>
@@ -285,13 +301,20 @@ export default function PendingPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-[var(--ss-i-100)]">
-                  {filtered.map((report) => (
+                  {filtered.map((report) => {
+                    const teacherName = report.draft_content?.header?.teacher_name ?? "—";
+                    const isConfirmingDelete = confirmDeleteId === report.id;
+                    const isDeleting = deletingId === report.id;
+                    return (
                     <tr key={report.id} className="hover:bg-[var(--ss-bg)] transition-colors group">
                       <td className="py-3.5 px-5 font-semibold text-[var(--ss-i-900)]">{report.student_name}</td>
                       <td className="py-3.5 px-5 text-[var(--ss-i-500)]">
                         <span className="px-2 py-0.5 rounded-md bg-[var(--ss-i-100)] text-[var(--ss-i-600)] text-xs font-medium">
                           {report.subject}
                         </span>
+                      </td>
+                      <td className="py-3.5 px-5 text-[var(--ss-i-500)] text-sm hidden lg:table-cell">
+                        {teacherName}
                       </td>
                       <td className="py-3.5 px-5 text-[var(--ss-i-500)] hidden md:table-cell text-sm">
                         {formatMonth(report.reporting_month)}
@@ -332,10 +355,39 @@ export default function PendingPage() {
                             Preview
                             <ChevronRight size={11} />
                           </Link>
+                          {isConfirmingDelete ? (
+                            <div className="flex items-center gap-1">
+                              <button
+                                onClick={() => deleteReport(report.id)}
+                                disabled={isDeleting}
+                                className="flex items-center gap-1 px-3 py-1.5 rounded-full bg-red-600 text-white text-xs font-semibold hover:bg-red-700 disabled:opacity-50 transition-colors"
+                              >
+                                {isDeleting ? (
+                                  <span className="w-3 h-3 rounded-full border-2 border-red-300 border-t-white animate-spin" />
+                                ) : null}
+                                Confirm
+                              </button>
+                              <button
+                                onClick={() => setConfirmDeleteId(null)}
+                                className="px-2 py-1.5 rounded-full text-xs text-[var(--ss-i-400)] hover:text-[var(--ss-i-700)] hover:bg-[var(--ss-i-100)] transition-colors"
+                              >
+                                Cancel
+                              </button>
+                            </div>
+                          ) : (
+                            <button
+                              onClick={() => setConfirmDeleteId(report.id)}
+                              className="p-1.5 rounded-full text-[var(--ss-i-300)] hover:text-red-600 hover:bg-red-50 opacity-0 group-hover:opacity-100 transition-all"
+                              title="Delete report"
+                            >
+                              <Trash2 size={13} />
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>
-                  ))}
+                  );
+                  })}
                 </tbody>
               </table>
             </div>

@@ -57,6 +57,17 @@ export interface GenerateFromSessionsBody {
   tone?: Partial<ToneSettings>;
 }
 
+export class ApiError extends Error {
+  status: number;
+  detail: string;
+  constructor(status: number, detail: string) {
+    super(detail || `HTTP ${status}`);
+    this.name = "ApiError";
+    this.status = status;
+    this.detail = detail;
+  }
+}
+
 async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
     headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) },
@@ -64,7 +75,16 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
   });
   if (!res.ok) {
     const text = await res.text().catch(() => res.statusText);
-    throw new Error(text || `HTTP ${res.status}`);
+    // FastAPI sends `{"detail": "..."}` for HTTPException — pull that out so
+    // the message we surface to the user is clean.
+    let detail = text;
+    try {
+      const parsed = JSON.parse(text);
+      if (parsed && typeof parsed.detail === "string") detail = parsed.detail;
+    } catch {
+      /* leave detail = text */
+    }
+    throw new ApiError(res.status, detail);
   }
   return res.json() as Promise<T>;
 }
@@ -214,6 +234,10 @@ export const api = {
         method: "POST",
         body: JSON.stringify({ voice: voice ?? null }),
       });
+    },
+
+    delete(id: string): Promise<{ status: string }> {
+      return apiFetch(`/api/ptm/reports/${id}`, { method: "DELETE" });
     },
   },
 
