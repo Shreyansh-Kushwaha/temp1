@@ -1,7 +1,13 @@
 """
-Report generation service — Gemini 2.5 Flash.
-If GEMINI_API_KEY is set → real Gemini call.
+Report generation service — Azure OpenAI GPT-5.1.
+If AZURE_OPENAI_API_KEY is set → real Azure OpenAI call.
 If not set → returns a deterministic mock draft so the full flow works without a key.
+
+Required env vars when going live:
+  AZURE_OPENAI_API_KEY
+  AZURE_OPENAI_ENDPOINT          (e.g. https://your-resource.openai.azure.com)
+  AZURE_OPENAI_DEPLOYMENT        (your GPT-5.1 deployment name)
+  AZURE_OPENAI_API_VERSION       (e.g. 2024-12-01-preview)
 
 The output JSON now also includes:
   - ai_confidence:        overall (0-100) + per-section sub-scores
@@ -174,7 +180,7 @@ async def generate_report(
     overrides: dict | None = None,
     tone: ToneOptions | None = None,
 ) -> dict:
-    if os.getenv("GEMINI_API_KEY", "").strip():
+    if os.getenv("AZURE_OPENAI_API_KEY", "").strip():
         return await _generate_real(data, overrides, tone)
     return _generate_mock(data, overrides, tone)
 
@@ -184,38 +190,63 @@ async def _generate_real(
     overrides: dict | None,
     tone: ToneOptions | None,
 ) -> dict:
-    import google.generativeai as genai
-    from google.api_core.exceptions import GoogleAPIError, ResourceExhausted
+    from openai import AsyncAzureOpenAI, APIStatusError, RateLimitError, APIError
     from fastapi import HTTPException
 
-    genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
+    endpoint = os.getenv("AZURE_OPENAI_ENDPOINT", "").strip()
+    deployment = os.getenv("AZURE_OPENAI_DEPLOYMENT", "").strip()
+    api_version = os.getenv("AZURE_OPENAI_API_VERSION", "2024-12-01-preview").strip()
 
-    model = genai.GenerativeModel(
-        model_name="gemini-2.5-flash",
-        system_instruction=SYSTEM_PROMPT,
-        generation_config=genai.GenerationConfig(
-            temperature=0.35,
-            max_output_tokens=8192,
-        ),
+    if not endpoint or not deployment:
+        raise HTTPException(
+            status_code=500,
+            detail="Azure OpenAI is not fully configured (endpoint or deployment missing).",
+        )
+
+    client = AsyncAzureOpenAI(
+        api_key=os.getenv("AZURE_OPENAI_API_KEY"),
+        azure_endpoint=endpoint,
+        api_version=api_version,
     )
 
+    user_prompt = _build_user_prompt(data, overrides, tone)
+
     try:
-        response = model.generate_content(_build_user_prompt(data, overrides, tone))
-    except ResourceExhausted as e:
-        # 429 — Gemini quota / per-minute rate limit. Surface a typed status
-        # so the frontend can render a friendly toast instead of a raw 500.
+        response = await client.chat.completions.create(
+            model=deployment,
+            messages=[
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": user_prompt},
+            ],
+            response_format={"type": "json_object"},
+            max_completion_tokens=8192,
+        )
+    except RateLimitError as e:
         raise HTTPException(
             status_code=429,
             detail="AI quota reached. Please try again in a minute, or contact admin if this keeps happening.",
         ) from e
-    except GoogleAPIError as e:
-        # Any other Gemini-side failure (auth, invalid arg, transport).
+    except APIStatusError as e:
+        raise HTTPException(
+            status_code=502,
+            detail=f"AI service error: HTTP {e.status_code}",
+        ) from e
+    except APIError as e:
         raise HTTPException(
             status_code=502,
             detail=f"AI service error: {type(e).__name__}",
         ) from e
-    raw = response.text.strip()
 
+    if not response.choices or not response.choices[0].message.content:
+        raise HTTPException(
+            status_code=502,
+            detail="AI returned an empty response. Please retry.",
+        )
+
+    raw = response.choices[0].message.content.strip()
+
+    # response_format=json_object should make code fences impossible, but strip
+    # them defensively in case the deployment ignores the hint.
     if raw.startswith("```"):
         raw = raw.split("```")[1]
         if raw.startswith("json"):
@@ -469,7 +500,7 @@ def _generate_mock(
 # ── Backfill helper ──────────────────────────────────────────────────────────
 
 def _coerce_string(item) -> str:
-    """Normalize Gemini's occasional object-vs-string drift into a single string."""
+    """Normalize occasional object-vs-string drift in the model output into a single string."""
     if isinstance(item, str):
         return item
     if isinstance(item, dict):
@@ -501,13 +532,13 @@ def _normalize_string_list(report: dict, path: tuple[str, ...]) -> None:
 
 
 def _ensure_phase1_fields(report: dict, data: dict, overrides: dict | None) -> dict:
-    """Defensive: fill in Phase-1 fields if Gemini omitted them or returned partials."""
+    """Defensive: fill in Phase-1 fields if the model omitted them or returned partials."""
     report.setdefault("at_home_action_plan", {"items": [], "inferred": True})
     report.setdefault("audio_script", "")
     report.setdefault("_inferred_fields", [])
     report.setdefault("_evidence", {})
 
-    # Normalize string-list fields — Gemini occasionally returns dicts here
+    # Normalize string-list fields — models occasionally return dicts here
     for path in (
         ("learning_coverage", "topics"),
         ("strengths", "items"),

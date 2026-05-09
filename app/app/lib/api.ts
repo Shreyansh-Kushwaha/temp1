@@ -196,6 +196,25 @@ export const api = {
       });
     },
 
+    autoFillForm(body: {
+      student_id: string;
+      student_name?: string;
+      subject?: string;
+      session_ids: string[];
+    }): Promise<{
+      engagement_level: string;
+      concept_understanding: string;
+      homework_effort: string;
+      specific_highlights: string;
+      improvement_areas: string;
+      next_month_goals: string[];
+    }> {
+      return apiFetch("/api/ptm/reports/auto-fill-form", {
+        method: "POST",
+        body: JSON.stringify(body),
+      });
+    },
+
     regenerateWithTone(
       id: string,
       tone: Partial<ToneSettings>
@@ -282,6 +301,16 @@ export const api = {
   knowledge: {
     summary(student_id: string): Promise<KnowledgeSummary> {
       return apiFetch(`/api/ptm/students/${student_id}/knowledge-summary`);
+    },
+
+    generate(
+      student_id: string,
+      mode: "create" | "update" = "create",
+    ): Promise<KnowledgeSummary> {
+      return apiFetch(`/api/ptm/students/${student_id}/knowledge-summary/generate`, {
+        method: "POST",
+        body: JSON.stringify({ mode }),
+      });
     },
 
     concepts(student_id: string, subject?: string): Promise<StudentConcept[]> {

@@ -4,7 +4,7 @@ import { useState, useEffect, use } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   ArrowLeft, Calendar, CheckSquare, Square, Loader2, AlertCircle,
-  ChevronRight, Sparkles, BookOpen, Brain,
+  ChevronRight, Sparkles, BookOpen, Brain, Wand2,
 } from "lucide-react";
 import Link from "next/link";
 import Navbar from "@/app/components/Navbar";
@@ -62,7 +62,48 @@ export default function StudentSessionPage({ params }: { params: Promise<PagePar
 
   const [generating, setGenerating] = useState(false);
   const [generateError, setGenerateError] = useState<string | null>(null);
+  const [autoFilling, setAutoFilling] = useState(false);
   const toast = useToast();
+
+  async function handleAutoFill() {
+    if (selectedIds.size === 0) {
+      toast.info("Select at least one session first.");
+      return;
+    }
+    setAutoFilling(true);
+    try {
+      const result = await api.reports.autoFillForm({
+        student_id,
+        student_name: studentName || undefined,
+        subject: subject || undefined,
+        session_ids: Array.from(selectedIds),
+      });
+      if (result.engagement_level) setEngagementLevel(result.engagement_level);
+      if (result.concept_understanding) setConceptUnderstanding(result.concept_understanding);
+      if (result.homework_effort) setHomeworkEffort(result.homework_effort);
+      if (result.specific_highlights) setSpecificHighlights(result.specific_highlights);
+      if (result.improvement_areas) setImprovementAreas(result.improvement_areas);
+      if (result.next_month_goals?.length) setNextMonthGoals(result.next_month_goals.join("\n"));
+
+      const filled = [
+        result.engagement_level,
+        result.concept_understanding,
+        result.homework_effort,
+        result.specific_highlights,
+        result.improvement_areas,
+        ...(result.next_month_goals || []),
+      ].filter(Boolean).length;
+      if (filled === 0) {
+        toast.info("AI couldn't infer enough from these sessions — fill the form manually.");
+      } else {
+        toast.success("Form drafted from sessions — review and edit before generating.");
+      }
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Auto-fill failed");
+    } finally {
+      setAutoFilling(false);
+    }
+  }
 
   useEffect(() => {
     if (!student_id) return;
@@ -258,6 +299,25 @@ export default function StudentSessionPage({ params }: { params: Promise<PagePar
           description="Your input helps the AI write a more accurate and personalised report."
         >
           <div className="space-y-5">
+            <button
+              onClick={handleAutoFill}
+              disabled={autoFilling || selectedIds.size === 0}
+              className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-2xl border border-dashed border-[var(--ss-o-300)] bg-[var(--ss-o-50)] text-[var(--ss-o-700)] text-sm font-semibold hover:bg-[var(--ss-o-100)] hover:border-[var(--ss-o-400)] disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+            >
+              {autoFilling ? (
+                <>
+                  <Loader2 size={15} className="animate-spin" />
+                  Reading sessions and drafting…
+                </>
+              ) : (
+                <>
+                  <Wand2 size={15} />
+                  Auto-fill from selected sessions
+                  <span className="text-[var(--ss-o-500)]/70 font-normal">— review before generating</span>
+                </>
+              )}
+            </button>
+
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <FormSelect
                 label="Engagement Level"

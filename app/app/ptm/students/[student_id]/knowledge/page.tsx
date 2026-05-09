@@ -13,6 +13,9 @@ import {
   AlertCircle,
   Filter,
   Sparkles,
+  Wand2,
+  Loader2,
+  RefreshCw,
 } from "lucide-react";
 import type {
   KnowledgeConceptEntry,
@@ -35,6 +38,8 @@ export default function KnowledgePage({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<StatusFilter>("all");
+  const [generating, setGenerating] = useState(false);
+  const [genError, setGenError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -48,6 +53,19 @@ export default function KnowledgePage({
       cancelled = true;
     };
   }, [student_id]);
+
+  async function runGenerate(mode: "create" | "update") {
+    setGenerating(true);
+    setGenError(null);
+    try {
+      const next = await api.knowledge.generate(student_id, mode);
+      setData(next);
+    } catch (e) {
+      setGenError(e instanceof Error ? e.message : "AI generation failed");
+    } finally {
+      setGenerating(false);
+    }
+  }
 
   const filtered = useMemo(() => {
     if (!data) return [];
@@ -83,10 +101,15 @@ export default function KnowledgePage({
       </header>
 
       <main className="max-w-7xl mx-auto px-4 md:px-8 pt-6 pb-16">
-        <div className="flex items-end justify-between gap-3 mb-7">
+        <div className="flex items-end justify-between gap-3 mb-7 flex-wrap">
           <div>
             <p className="text-[10px] font-bold uppercase tracking-widest text-white/50 mb-1">
               Student Intelligence Dashboard
+              {data?.ai_generated && (
+                <span className="ml-2 inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-[var(--ss-o-500)]/20 border border-[var(--ss-o-400)]/30 text-[var(--ss-o-300)] tracking-wider">
+                  <Sparkles size={9} /> AI · v{data.generation_count ?? 1}
+                </span>
+              )}
             </p>
             <h1
               className="text-3xl md:text-4xl font-extrabold flex items-center gap-2.5"
@@ -99,10 +122,45 @@ export default function KnowledgePage({
             </h1>
             <p className="text-sm text-white/50 mt-2 max-w-xl">
               Topics covered, mastery progression, weak concepts, attendance trend, and learning velocity —
-              aggregated from every report.
+              {data?.ai_generated
+                ? " AI-generated from session transcripts and prior reports."
+                : " aggregated from every report."}
             </p>
           </div>
+
+          {!loading && (
+            <button
+              onClick={() => runGenerate(data?.ai_generated ? "update" : "create")}
+              disabled={generating}
+              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-full bg-[var(--ss-o-500)] text-white text-xs font-bold hover:bg-[var(--ss-o-600)] disabled:opacity-50 disabled:cursor-not-allowed shadow-[var(--ss-shadow-brand)] transition-all"
+              style={{ fontFamily: "var(--font-jakarta)" }}
+            >
+              {generating ? (
+                <>
+                  <Loader2 size={13} className="animate-spin" />
+                  {data?.ai_generated ? "Updating with AI…" : "Generating with AI…"}
+                </>
+              ) : data?.ai_generated ? (
+                <>
+                  <RefreshCw size={13} />
+                  Update with AI
+                </>
+              ) : (
+                <>
+                  <Wand2 size={13} />
+                  Generate with AI
+                </>
+              )}
+            </button>
+          )}
         </div>
+
+        {genError && (
+          <div className="mb-4 rounded-2xl border border-red-500/30 bg-red-500/5 backdrop-blur-md p-4 text-sm text-red-300 flex items-start gap-2">
+            <AlertCircle size={15} className="mt-0.5 shrink-0" />
+            {genError}
+          </div>
+        )}
 
         {loading ? (
           <Skeleton />
@@ -110,7 +168,12 @@ export default function KnowledgePage({
           <div className="rounded-2xl border border-red-500/30 bg-red-500/5 backdrop-blur-md p-5 text-sm text-red-300">
             {error}
           </div>
-        ) : !data ? null : (
+        ) : !data ? null : data.concept_summary.total === 0 && !data.ai_generated ? (
+          <EmptyKnowledgeCTA
+            onGenerate={() => runGenerate("create")}
+            generating={generating}
+          />
+        ) : (
           <>
             {/* Stat row */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
@@ -222,6 +285,23 @@ export default function KnowledgePage({
                   velocity={data.learning_velocity}
                   reportCount={data.report_count}
                 />
+
+                {data.ai_generated && data.insights && data.insights.length > 0 && (
+                  <div className="rounded-2xl bg-white/5 border border-[var(--ss-o-400)]/20 backdrop-blur-md p-5">
+                    <p className="text-[10px] font-bold uppercase tracking-widest text-[var(--ss-o-300)] mb-3 flex items-center gap-1.5">
+                      <Sparkles size={11} />
+                      AI Insights
+                    </p>
+                    <ul className="space-y-2 text-[12px] text-white/80 leading-relaxed">
+                      {data.insights.map((s, i) => (
+                        <li key={i} className="flex gap-2">
+                          <span className="text-[var(--ss-o-400)] mt-0.5">•</span>
+                          <span>{s}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
 
                 <InsightsPanel data={data} />
 
@@ -475,6 +555,52 @@ function MasteryMix({ data }: { data: KnowledgeSummary["concept_summary"] }) {
           <span className="text-white font-semibold">{data.weak}</span>
         </li>
       </ul>
+    </div>
+  );
+}
+
+function EmptyKnowledgeCTA({
+  onGenerate,
+  generating,
+}: {
+  onGenerate: () => void;
+  generating: boolean;
+}) {
+  return (
+    <div className="rounded-3xl border border-white/10 bg-white/[0.04] backdrop-blur-md p-10 text-center">
+      <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-[var(--ss-o-500)]/15 border border-[var(--ss-o-400)]/30 mb-4">
+        <Brain size={24} className="text-[var(--ss-o-300)]" />
+      </div>
+      <h2
+        className="text-xl font-extrabold text-white mb-2"
+        style={{ fontFamily: "var(--font-jakarta)" }}
+      >
+        No knowledge snapshot yet
+      </h2>
+      <p className="text-sm text-white/60 max-w-md mx-auto mb-5">
+        Build the dashboard from this student&apos;s session transcripts and any
+        existing PTM reports. The result is saved — next time, click
+        <span className="text-[var(--ss-o-300)] font-semibold"> Update with AI </span>
+        to refine and append new findings.
+      </p>
+      <button
+        onClick={onGenerate}
+        disabled={generating}
+        className="inline-flex items-center gap-2 px-5 py-3 rounded-full bg-[var(--ss-o-500)] text-white text-sm font-bold hover:bg-[var(--ss-o-600)] disabled:opacity-50 disabled:cursor-not-allowed shadow-[var(--ss-shadow-brand)] transition-all"
+        style={{ fontFamily: "var(--font-jakarta)" }}
+      >
+        {generating ? (
+          <>
+            <Loader2 size={14} className="animate-spin" />
+            Generating…
+          </>
+        ) : (
+          <>
+            <Wand2 size={14} />
+            Generate with AI
+          </>
+        )}
+      </button>
     </div>
   );
 }

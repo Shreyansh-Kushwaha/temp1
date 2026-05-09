@@ -9,7 +9,7 @@ from fastapi import APIRouter, BackgroundTasks, HTTPException
 from pydantic import BaseModel
 
 from db.connection import get_db
-from services import claude_service, pdf_service, wise_service, tts_service, risk_service, version_service
+from services import claude_service, copilot_service, form_assist_service, knowledge_service, pdf_service, wise_service, tts_service, risk_service, version_service
 
 router = APIRouter(prefix="/api/ptm", tags=["ptm"])
 
@@ -138,6 +138,13 @@ class AudioSummaryBody(BaseModel):
     voice: str | None = None
 
 
+class AutoFillFormBody(BaseModel):
+    student_id: str
+    student_name: str | None = None
+    subject: str | None = None
+    session_ids: list[str]
+
+
 class CopilotMessageBody(BaseModel):
     student_id: str
     conversation_id: str | None = None
@@ -154,6 +161,28 @@ async def list_students_for_teacher(teacher_name: str):
 @router.get("/students/{student_id}/sessions")
 async def get_student_sessions(student_id: str):
     return await wise_service.get_student_sessions(student_id)
+
+
+@router.post("/reports/auto-fill-form")
+async def auto_fill_form(body: AutoFillFormBody):
+    """Suggest teacher-form values from selected sessions, via GPT-5.1.
+    The teacher reviews/edits the result before generating the report."""
+    all_sessions = await wise_service.get_student_sessions(body.student_id)
+    selected = [s for s in all_sessions if s["session_id"] in body.session_ids]
+    if not selected:
+        return {
+            "engagement_level": "",
+            "concept_understanding": "",
+            "homework_effort": "",
+            "specific_highlights": "",
+            "improvement_areas": "",
+            "next_month_goals": [],
+        }
+    return await form_assist_service.auto_fill(
+        selected,
+        student_name=body.student_name,
+        subject=body.subject,
+    )
 
 
 @router.post("/reports/from-sessions")
@@ -1093,7 +1122,8 @@ async def get_student_risk(student_id: str):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Phase 3: copilot (hardcoded for now — architecture supports real LLM later)
+# Phase 3: copilot — Azure OpenAI GPT-5.1, with canned responses as fallback
+# when the key isn't configured or the LLM call fails.
 # ─────────────────────────────────────────────────────────────────────────────
 
 _COPILOT_INTENTS = [
@@ -1166,13 +1196,50 @@ async def copilot_message(body: CopilotMessageBody):
 
         conv_id = body.conversation_id or str(uuid.uuid4())
         ts = now_iso()
+
+        # Fetch the prior turns of this conversation BEFORE inserting the new
+        # user turn — so we can replay them as chat history for the LLM.
+        history: list[dict] = []
+        if body.conversation_id:
+            async with db.execute(
+                """SELECT role, content FROM ptm_copilot_messages
+                   WHERE student_id = ? AND conversation_id = ?
+                   ORDER BY created_at ASC LIMIT 20""",
+                [body.student_id, body.conversation_id],
+            ) as cur:
+                rows = await cur.fetchall()
+            history = [dict(r) for r in rows]
+
         await db.execute(
             """INSERT INTO ptm_copilot_messages
                (id, student_id, conversation_id, role, content, created_at)
                VALUES (?, ?, ?, 'user', ?, ?)""",
             [str(uuid.uuid4()), body.student_id, conv_id, body.message, ts],
         )
-        reply = _copilot_canned_response(body.student_id, body.message, latest)
+
+        # Always pull Wise session summaries — even if a PTM report exists,
+        # the raw session detail lets the copilot answer specific questions
+        # like "what did we cover on March 14" or "where did topic X come up".
+        sessions: list[dict] = []
+        try:
+            sessions = await wise_service.get_student_sessions(body.student_id)
+        except Exception as e:
+            logger.warning("copilot: wise_service.get_student_sessions failed: %s", e)
+
+        llm = await copilot_service.chat(
+            body.message,
+            latest,
+            history,
+            student_id=body.student_id,
+            sessions=sessions,
+        )
+        if llm:
+            reply = llm["reply"]
+            suggested = llm["suggested_prompts"]
+        else:
+            reply = _copilot_canned_response(body.student_id, body.message, latest)
+            suggested = [s[1] for s in _COPILOT_INTENTS]
+
         await db.execute(
             """INSERT INTO ptm_copilot_messages
                (id, student_id, conversation_id, role, content, created_at)
@@ -1183,7 +1250,7 @@ async def copilot_message(body: CopilotMessageBody):
         return {
             "conversation_id": conv_id,
             "reply": reply,
-            "suggested_prompts": [s[1] for s in _COPILOT_INTENTS],
+            "suggested_prompts": suggested,
         }
     finally:
         await db.close()
@@ -1229,12 +1296,142 @@ async def list_student_concepts(student_id: str, subject: str | None = None):
         await db.close()
 
 
+async def _saved_knowledge_for(student_id: str) -> dict | None:
+    db = await get_db()
+    try:
+        async with db.execute(
+            """SELECT student_id, student_name, subject, payload,
+                      generation_count, generated_at, updated_at
+               FROM ptm_student_knowledge WHERE student_id = ?""",
+            [student_id],
+        ) as cur:
+            row = await cur.fetchone()
+        if not row:
+            return None
+        d = dict(row)
+        payload = d.get("payload")
+        if isinstance(payload, str):
+            try:
+                payload = json.loads(payload)
+            except (json.JSONDecodeError, TypeError):
+                payload = {}
+        if not isinstance(payload, dict):
+            return None
+        payload["student_id"] = d["student_id"]
+        payload["student_name"] = payload.get("student_name") or d.get("student_name")
+        payload["subject"] = payload.get("subject") or d.get("subject")
+        payload["ai_generated"] = True
+        payload["generation_count"] = d.get("generation_count") or 1
+        gen_at = d.get("generated_at")
+        upd_at = d.get("updated_at")
+        payload["generated_at"] = gen_at.isoformat() if gen_at else None
+        payload["last_updated_at"] = upd_at.isoformat() if upd_at else None
+        return payload
+    finally:
+        await db.close()
+
+
+class GenerateKnowledgeBody(BaseModel):
+    mode: str = "create"  # "create" | "update"
+
+
+@router.post("/students/{student_id}/knowledge-summary/generate")
+async def knowledge_summary_generate(student_id: str, body: GenerateKnowledgeBody):
+    """Generate (or refine) the AI student-knowledge snapshot and persist it
+    to Supabase. Pass mode='update' to append to / refine the prior snapshot."""
+    mode = body.mode if body.mode in ("create", "update") else "create"
+
+    # Pull live signals
+    try:
+        sessions = await wise_service.get_student_sessions(student_id)
+    except Exception as e:
+        logger.warning("knowledge.generate: wise sessions fetch failed: %s", e)
+        sessions = []
+
+    db = await get_db()
+    try:
+        async with db.execute(
+            """SELECT * FROM ptm_reports
+               WHERE student_id = ? AND deleted_at IS NULL
+               ORDER BY reporting_month ASC, created_at ASC""",
+            [student_id],
+        ) as cur:
+            rows = [dict(r) for r in await cur.fetchall()]
+    finally:
+        await db.close()
+
+    reports: list[dict] = []
+    student_name: str | None = None
+    subject: str | None = None
+    for r in rows:
+        try:
+            r["draft_content"] = json.loads(r["draft_content"]) if isinstance(r["draft_content"], str) else r["draft_content"]
+        except (json.JSONDecodeError, TypeError):
+            r["draft_content"] = {}
+        student_name = student_name or r.get("student_name")
+        subject = subject or r.get("subject")
+        reports.append(r)
+
+    if not student_name and sessions:
+        # wise_service may not always populate student_name; that's fine.
+        pass
+
+    prior = await _saved_knowledge_for(student_id) if mode == "update" else None
+    student_name = student_name or (prior or {}).get("student_name")
+    subject = subject or (prior or {}).get("subject")
+
+    snapshot = await knowledge_service.generate(
+        student_id=student_id,
+        student_name=student_name,
+        subject=subject,
+        sessions=sessions,
+        reports=reports,
+        prior=prior,
+        mode=mode,
+    )
+    if snapshot is None:
+        raise HTTPException(
+            status_code=502,
+            detail="AI knowledge generation failed. Check Azure OpenAI configuration and try again.",
+        )
+
+    # Persist (UPSERT). On update, bump generation_count.
+    payload_json = json.dumps(snapshot)
+    db = await get_db()
+    try:
+        await db.execute(
+            """INSERT INTO ptm_student_knowledge
+                 (student_id, student_name, subject, payload,
+                  generation_count, generated_at, updated_at)
+               VALUES (?, ?, ?, ?::jsonb, 1, now(), now())
+               ON CONFLICT (student_id) DO UPDATE SET
+                 student_name      = EXCLUDED.student_name,
+                 subject           = EXCLUDED.subject,
+                 payload           = EXCLUDED.payload,
+                 generation_count  = ptm_student_knowledge.generation_count + 1,
+                 updated_at        = now()""",
+            [student_id, snapshot.get("student_name"), snapshot.get("subject"), payload_json],
+        )
+        await db.commit()
+    finally:
+        await db.close()
+
+    saved = await _saved_knowledge_for(student_id)
+    return saved or snapshot
+
+
 @router.get("/students/{student_id}/knowledge-summary")
 async def knowledge_summary(student_id: str):
     """
     Aggregate signals across this student's reports to power the knowledge dashboard.
-    Mockable: derives from existing reports + concepts table; returns shape ready for the UI.
+    Returns the AI-generated snapshot from Supabase if one has been saved
+    (via /knowledge-summary/generate); otherwise derives a minimal view from
+    existing PTM reports.
     """
+    saved = await _saved_knowledge_for(student_id)
+    if saved is not None:
+        return saved
+
     db = await get_db()
     try:
         async with db.execute(

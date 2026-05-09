@@ -140,6 +140,7 @@ export interface KnowledgeConceptEntry {
   status: "mastered" | "learning" | "weak";
   last_month: string | null;
   appearances: number;
+  evidence?: string;
 }
 
 export interface KnowledgeSummary {
@@ -152,6 +153,11 @@ export interface KnowledgeSummary {
   concept_summary: { total: number; mastered: number; learning: number; weak: number };
   learning_velocity: number;
   report_count: number;
+  insights?: string[];
+  ai_generated?: boolean;
+  generation_count?: number;
+  generated_at?: string | null;
+  last_updated_at?: string | null;
 }
 
 export interface ReportDraft {
