@@ -1,12 +1,15 @@
 import json
+import logging
 import uuid
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, HTTPException
+logger = logging.getLogger("ptm.router")
+
+from fastapi import APIRouter, BackgroundTasks, HTTPException
 from pydantic import BaseModel
 
 from db.connection import get_db
-from services import claude_service, wise_service, tts_service, risk_service, version_service
+from services import claude_service, pdf_service, wise_service, tts_service, risk_service, version_service
 
 router = APIRouter(prefix="/api/ptm", tags=["ptm"])
 
@@ -154,7 +157,7 @@ async def get_student_sessions(student_id: str):
 
 
 @router.post("/reports/from-sessions")
-async def generate_report_from_sessions(body: GenerateFromSessionsBody):
+async def generate_report_from_sessions(body: GenerateFromSessionsBody, background_tasks: BackgroundTasks):
     from datetime import date as _date
     all_sessions = await wise_service.get_student_sessions(body.student_id)
 
@@ -228,6 +231,7 @@ async def generate_report_from_sessions(body: GenerateFromSessionsBody):
             [str(uuid.uuid4()), report_id, json.dumps(draft), ts],
         )
         await db.commit()
+        background_tasks.add_task(pdf_service.generate_and_store_pdf, report_id, 1)
         return {"report_id": report_id, "status": "pending", "draft_content": draft}
     finally:
         await db.close()
@@ -236,6 +240,194 @@ async def generate_report_from_sessions(body: GenerateFromSessionsBody):
 @router.get("/teachers")
 async def list_teachers():
     return await wise_service.list_all_teachers()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Auto-generate opt-in (per teacher) + n8n daily batch endpoint
+# ─────────────────────────────────────────────────────────────────────────────
+
+class AutoGenerateToggleBody(BaseModel):
+    teacher_name: str
+    enabled: bool
+
+
+@router.get("/teachers/auto-generate")
+async def list_teachers_auto_generate():
+    """List every teacher with their auto-generate flag (defaults to false
+    when no settings row exists yet). Used by the /ptm/automation UI."""
+    teachers = await wise_service.list_all_teachers()
+    db = await get_db()
+    try:
+        async with db.execute(
+            "SELECT teacher_name, auto_generate_enabled FROM ptm_teacher_settings"
+        ) as cur:
+            rows = await cur.fetchall()
+        settings = {r["teacher_name"]: bool(r["auto_generate_enabled"]) for r in rows}
+        return [
+            {
+                "teacher_name": t["teacher_name"],
+                "auto_generate_enabled": settings.get(t["teacher_name"], False),
+            }
+            for t in teachers
+        ]
+    finally:
+        await db.close()
+
+
+@router.patch("/teachers/auto-generate")
+async def set_teacher_auto_generate(body: AutoGenerateToggleBody):
+    """Toggle a teacher's opt-in for the daily auto-generate job."""
+    ts = now_iso()
+    db = await get_db()
+    try:
+        await db.execute(
+            """INSERT INTO ptm_teacher_settings (teacher_name, auto_generate_enabled, updated_at)
+               VALUES (?, ?, ?)
+               ON CONFLICT(teacher_name) DO UPDATE SET
+                 auto_generate_enabled=excluded.auto_generate_enabled,
+                 updated_at=excluded.updated_at""",
+            [body.teacher_name, 1 if body.enabled else 0, ts],
+        )
+        await db.commit()
+        return {"teacher_name": body.teacher_name, "auto_generate_enabled": body.enabled}
+    finally:
+        await db.close()
+
+
+@router.post("/auto-generate/run")
+async def auto_generate_run(
+    background_tasks: BackgroundTasks,
+    month: str | None = None,
+    batch_size: int = 20,
+):
+    """Daily auto-generate for opted-in teachers.
+
+    Decision order (durability first):
+      1. Does this student already have a report for `month`?  → skip ("existing")
+      2. Is this student's teacher opted in?                     → skip ("no_optin")
+      3. Otherwise, generate with default answers and queue PDF render.
+
+    A unique partial index on ptm_reports(student_id, reporting_month)
+    WHERE deleted_at IS NULL guarantees that even if two runs overlap, only
+    one INSERT survives — the duplicate hits IntegrityError which we catch
+    and bucket as "existing".
+    """
+    import sqlite3
+    from datetime import date
+
+    if not month:
+        today = date.today()
+        month = f"{today.year}-{today.month:02d}-01"
+    batch_size = max(1, min(100, batch_size))
+
+    db = await get_db()
+    try:
+        # Pre-fetch the opt-in set ONCE for the whole run.
+        async with db.execute(
+            "SELECT teacher_name FROM ptm_teacher_settings WHERE auto_generate_enabled = 1"
+        ) as cur:
+            opted_in = {r["teacher_name"] for r in await cur.fetchall()}
+        logger.info("auto_generate: %d teacher(s) opted in for month=%s", len(opted_in), month)
+
+        all_active = await wise_service.list_active_students(month)
+        logger.info("auto_generate: %d active students this month", len(all_active))
+
+        skipped_existing: list[str] = []
+        skipped_no_optin: list[str] = []
+        pending: list[dict] = []
+
+        # ── Per-student gate (in the order the user asked for): ──
+        for s in all_active:
+            sid = s["student_id"]
+
+            # GATE 1: report already exists for this student+month?  durable check
+            async with db.execute(
+                "SELECT id FROM ptm_reports WHERE student_id=? AND reporting_month=? AND deleted_at IS NULL",
+                [sid, month],
+            ) as cur:
+                existing = await cur.fetchone()
+            if existing:
+                skipped_existing.append(sid)
+                continue
+
+            # GATE 2: teacher opt-in
+            if s.get("teacher_name") not in opted_in:
+                skipped_no_optin.append(sid)
+                continue
+
+            # Both gates passed → eligible to generate
+            pending.append(s)
+
+        to_process = pending[:batch_size]
+        remaining = max(0, len(pending) - batch_size)
+        logger.info(
+            "auto_generate: gates → %d existing, %d no-optin, %d eligible (processing %d, remaining %d)",
+            len(skipped_existing), len(skipped_no_optin), len(pending), len(to_process), remaining,
+        )
+
+        processed: list[dict] = []
+        for s in to_process:
+            sid = s["student_id"]
+            wise_data = await wise_service.get_student_month_data(sid, month)
+            if not wise_data:
+                logger.warning("auto_generate: skipping %s — wise_service returned no data", sid)
+                continue
+
+            # Default answers = no overrides, balanced tone (AI-generated draft).
+            draft = await claude_service.generate_report(wise_data)
+            overall = _extract_overall_confidence(draft)
+            ts = now_iso()
+            report_id = str(uuid.uuid4())
+
+            try:
+                await db.execute(
+                    """INSERT INTO ptm_reports
+                       (id, student_id, teacher_id, student_name, subject, reporting_month,
+                        status, draft_content, regeneration_count, created_at, updated_at,
+                        overall_confidence, tone_warmth, tone_detail)
+                       VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, 0, ?, ?, ?, 'balanced', 'balanced')""",
+                    [report_id, sid, s.get("teacher_id", ""), s["name"], s["subject"],
+                     month, json.dumps(draft), ts, ts, overall],
+                )
+            except sqlite3.IntegrityError as e:
+                # Unique-index race: another process beat us to it.
+                logger.info("auto_generate: race-skip for %s (%s) — %s", sid, month, e)
+                skipped_existing.append(sid)
+                continue
+
+            await db.execute(
+                """INSERT INTO ptm_report_versions
+                   (id, report_id, version_number, draft_content, trigger, created_at)
+                   VALUES (?, ?, 1, ?, 'auto_generate', ?)""",
+                [str(uuid.uuid4()), report_id, json.dumps(draft), ts],
+            )
+            processed.append({
+                "report_id": report_id,
+                "student_id": sid,
+                "student_name": s["name"],
+                "teacher_name": s.get("teacher_name"),
+            })
+
+        await db.commit()
+
+        for p in processed:
+            background_tasks.add_task(pdf_service.generate_and_store_pdf, p["report_id"], 1)
+
+        note = None
+        if not opted_in:
+            note = "No teachers have auto-generate enabled — every student fell through gate 2."
+
+        return {
+            "month": month,
+            "batch_size": batch_size,
+            "processed": processed,
+            "skipped_existing": skipped_existing,
+            "skipped_no_optin": skipped_no_optin,
+            "remaining": remaining,
+            "note": note,
+        }
+    finally:
+        await db.close()
 
 
 @router.get("/reports")
@@ -274,7 +466,7 @@ async def get_report(report_id: str):
 
 
 @router.patch("/reports/{report_id}")
-async def patch_report(report_id: str, body: PatchDraftBody):
+async def patch_report(report_id: str, body: PatchDraftBody, background_tasks: BackgroundTasks):
     db = await get_db()
     try:
         async with db.execute("SELECT id FROM ptm_reports WHERE id = ? AND deleted_at IS NULL", [report_id]) as cur:
@@ -293,33 +485,51 @@ async def patch_report(report_id: str, body: PatchDraftBody):
             [report_id],
         ) as cur:
             (max_v,) = await cur.fetchone()
+        new_version = int(max_v) + 1
         await db.execute(
             """INSERT INTO ptm_report_versions
                (id, report_id, version_number, draft_content, trigger, created_at)
                VALUES (?, ?, ?, ?, 'edit', ?)""",
-            [str(uuid.uuid4()), report_id, int(max_v) + 1, json.dumps(body.draft_content), ts],
+            [str(uuid.uuid4()), report_id, new_version, json.dumps(body.draft_content), ts],
         )
         await db.commit()
+        background_tasks.add_task(pdf_service.generate_and_store_pdf, report_id, new_version)
         return {"status": "saved"}
     finally:
         await db.close()
 
 
 @router.post("/reports/{report_id}/approve")
-async def approve_report(report_id: str, body: ApproveBody):
+async def approve_report(report_id: str, body: ApproveBody, background_tasks: BackgroundTasks):
     db = await get_db()
     try:
         async with db.execute("SELECT * FROM ptm_reports WHERE id = ? AND deleted_at IS NULL", [report_id]) as cur:
             row = await cur.fetchone()
         if not row:
             raise HTTPException(status_code=404, detail="Report not found")
-        if dict(row)["status"] not in ("pending", "rejected"):
+        report = row_to_report(row)
+        if report["status"] not in ("pending", "rejected"):
             raise HTTPException(status_code=400, detail="Report is not pending")
 
         ts = now_iso()
         await db.execute(
             "UPDATE ptm_reports SET status='approved', teacher_note=?, updated_at=? WHERE id=?",
             [body.teacher_note, ts, report_id],
+        )
+        # Snapshot the approved state as a new version so the rendered PDF is
+        # the definitive "what was sent to parents" record.
+        async with db.execute(
+            "SELECT COALESCE(MAX(version_number),0) FROM ptm_report_versions WHERE report_id=?",
+            [report_id],
+        ) as cur:
+            (max_v,) = await cur.fetchone()
+        approved_version = int(max_v) + 1
+        await db.execute(
+            """INSERT INTO ptm_report_versions
+               (id, report_id, version_number, draft_content, trigger, notes, created_at)
+               VALUES (?, ?, ?, ?, 'approved', ?, ?)""",
+            [str(uuid.uuid4()), report_id, approved_version,
+             json.dumps(report["draft_content"]), body.teacher_note, ts],
         )
         # Mock delivery log entries
         for channel in ("email", "whatsapp"):
@@ -328,6 +538,7 @@ async def approve_report(report_id: str, body: ApproveBody):
                 [str(uuid.uuid4()), report_id, channel, ts],
             )
         await db.commit()
+        background_tasks.add_task(pdf_service.generate_and_store_pdf, report_id, approved_version)
         return {"status": "approved", "delivered_via": ["email", "whatsapp"]}
     finally:
         await db.close()
@@ -372,7 +583,7 @@ async def get_questionnaire(report_id: str):
 
 
 @router.post("/reports/{report_id}/questionnaire")
-async def submit_questionnaire(report_id: str, body: QuestionnaireBody):
+async def submit_questionnaire(report_id: str, body: QuestionnaireBody, background_tasks: BackgroundTasks):
     db = await get_db()
     try:
         async with db.execute("SELECT * FROM ptm_reports WHERE id = ? AND deleted_at IS NULL", [report_id]) as cur:
@@ -455,21 +666,23 @@ async def submit_questionnaire(report_id: str, body: QuestionnaireBody):
             [report_id],
         ) as cur:
             (max_v,) = await cur.fetchone()
+        new_version = int(max_v) + 1
         await db.execute(
             """INSERT INTO ptm_report_versions
                (id, report_id, version_number, draft_content, trigger, notes, created_at)
                VALUES (?, ?, ?, ?, 'regenerate', ?, ?)""",
-            [str(uuid.uuid4()), report_id, int(max_v) + 1, json.dumps(new_draft),
+            [str(uuid.uuid4()), report_id, new_version, json.dumps(new_draft),
              body.free_form_note, ts],
         )
         await db.commit()
+        background_tasks.add_task(pdf_service.generate_and_store_pdf, report_id, new_version)
         return {"status": "regenerated", "draft_content": new_draft, "regeneration_count": regen_count}
     finally:
         await db.close()
 
 
 @router.post("/reports/{report_id}/regenerate-tone")
-async def regenerate_with_tone(report_id: str, body: RegenerateWithToneBody):
+async def regenerate_with_tone(report_id: str, body: RegenerateWithToneBody, background_tasks: BackgroundTasks):
     """Re-render an existing report with new tone settings. Doesn't count toward the 2-cycle rejection cap."""
     db = await get_db()
     try:
@@ -504,20 +717,22 @@ async def regenerate_with_tone(report_id: str, body: RegenerateWithToneBody):
             [report_id],
         ) as cur:
             (max_v,) = await cur.fetchone()
+        new_version = int(max_v) + 1
         await db.execute(
             """INSERT INTO ptm_report_versions
                (id, report_id, version_number, draft_content, trigger, created_at)
                VALUES (?, ?, ?, ?, 'tone_change', ?)""",
-            [str(uuid.uuid4()), report_id, int(max_v) + 1, json.dumps(new_draft), ts],
+            [str(uuid.uuid4()), report_id, new_version, json.dumps(new_draft), ts],
         )
         await db.commit()
+        background_tasks.add_task(pdf_service.generate_and_store_pdf, report_id, new_version)
         return {"status": "regenerated", "draft_content": new_draft, "tone": tone}
     finally:
         await db.close()
 
 
 @router.post("/generate")
-async def generate_all_reports(month: str | None = None):
+async def generate_all_reports(background_tasks: BackgroundTasks, month: str | None = None):
     from datetime import date
     if not month:
         today = date.today()
@@ -563,6 +778,8 @@ async def generate_all_reports(month: str | None = None):
             created.append(report_id)
 
         await db.commit()
+        for rid in created:
+            background_tasks.add_task(pdf_service.generate_and_store_pdf, rid, 1)
         return {"created": len(created), "skipped": len(skipped), "report_ids": created}
     finally:
         await db.close()
@@ -582,25 +799,75 @@ async def list_escalated():
 
 
 @router.post("/escalated/{report_id}/override")
-async def override_escalated(report_id: str):
+async def override_escalated(report_id: str, background_tasks: BackgroundTasks):
     db = await get_db()
     try:
-        async with db.execute("SELECT id FROM ptm_reports WHERE id=? AND status='escalated' AND deleted_at IS NULL", [report_id]) as cur:
+        async with db.execute("SELECT * FROM ptm_reports WHERE id=? AND status='escalated' AND deleted_at IS NULL", [report_id]) as cur:
             row = await cur.fetchone()
         if not row:
             raise HTTPException(status_code=404, detail="Escalated report not found")
+        report = row_to_report(row)
 
         ts = now_iso()
         await db.execute("UPDATE ptm_reports SET status='approved', updated_at=? WHERE id=?", [ts, report_id])
+        async with db.execute(
+            "SELECT COALESCE(MAX(version_number),0) FROM ptm_report_versions WHERE report_id=?",
+            [report_id],
+        ) as cur:
+            (max_v,) = await cur.fetchone()
+        approved_version = int(max_v) + 1
+        await db.execute(
+            """INSERT INTO ptm_report_versions
+               (id, report_id, version_number, draft_content, trigger, created_at)
+               VALUES (?, ?, ?, ?, 'manager_override', ?)""",
+            [str(uuid.uuid4()), report_id, approved_version,
+             json.dumps(report["draft_content"]), ts],
+        )
         for channel in ("email", "whatsapp"):
             await db.execute(
                 "INSERT INTO ptm_delivery_log (id, report_id, channel, status, sent_at) VALUES (?, ?, ?, 'sent', ?)",
                 [str(uuid.uuid4()), report_id, channel, ts],
             )
         await db.commit()
+        background_tasks.add_task(pdf_service.generate_and_store_pdf, report_id, approved_version)
         return {"status": "approved", "delivered_via": ["email", "whatsapp"]}
     finally:
         await db.close()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# On-demand PDF render — returns a public Supabase URL the frontend can download
+# ─────────────────────────────────────────────────────────────────────────────
+
+@router.post("/reports/{report_id}/pdf")
+async def render_pdf_now(report_id: str):
+    """Synchronously render the report's print page to PDF via Playwright,
+    upload to Supabase Storage, persist the URL on ptm_reports.pdf_url, and
+    return it. Frontend uses this for a one-click 'Download PDF' flow."""
+    db = await get_db()
+    try:
+        async with db.execute(
+            "SELECT id FROM ptm_reports WHERE id = ? AND deleted_at IS NULL", [report_id]
+        ) as cur:
+            row = await cur.fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Report not found")
+
+        async with db.execute(
+            "SELECT COALESCE(MAX(version_number),1) FROM ptm_report_versions WHERE report_id=?",
+            [report_id],
+        ) as cur:
+            (version,) = await cur.fetchone()
+    finally:
+        await db.close()
+
+    pdf_url = await pdf_service.generate_and_store_pdf(report_id, int(version))
+    if not pdf_url:
+        raise HTTPException(
+            status_code=500,
+            detail="PDF generation failed. Check that Playwright Chromium is installed and the frontend is reachable from the backend.",
+        )
+    return {"pdf_url": pdf_url, "version_number": int(version)}
 
 
 # ─────────────────────────────────────────────────────────────────────────────

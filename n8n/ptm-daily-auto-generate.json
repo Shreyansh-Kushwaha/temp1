@@ -1,0 +1,179 @@
+{
+  "name": "PTM — Daily auto-generate",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 6 * * *"
+            }
+          ]
+        }
+      },
+      "id": "schedule-daily-6am",
+      "name": "Daily 06:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [-1280, 96]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "a1",
+              "name": "month",
+              "value": "={{ new Date().toISOString().slice(0, 7) + '-01' }}",
+              "type": "string"
+            },
+            {
+              "id": "a2",
+              "name": "batchSize",
+              "value": 20,
+              "type": "number"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "set-config",
+      "name": "Compute month + config",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [-1056, 96]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://turbo-fishstick-wr4ww9qppprj2gvv7-8000.app.github.dev/api/ptm/auto-generate/run",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "month",
+              "value": "={{ $json.month }}"
+            },
+            {
+              "name": "batch_size",
+              "value": "={{ $json.batchSize }}"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 600000,
+          "response": {
+            "response": {
+              "fullResponse": false
+            }
+          }
+        }
+      },
+      "id": "trigger-batch",
+      "name": "Run batch (PTM backend)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [-816, 96]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "has-processed",
+              "leftValue": "={{ $json.processed.length }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-anything-done",
+      "name": "Anything generated?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [-576, 96]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "s1",
+              "name": "summary",
+              "value": "=PTM auto-generate ✓\nMonth: {{ $json.month }}\nCreated: {{ $json.processed.length }}\nSkipped (already exists): {{ $json.skipped_existing.length }}\nSkipped (no opt-in): {{ $json.skipped_no_optin.length }}\nRemaining for tomorrow: {{ $json.remaining }}\nFirst few: {{ $json.processed.slice(0, 3).map(p => p.student_name).join(', ') }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "format-success",
+      "name": "Format success summary",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [-336, -16]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "n1",
+              "name": "summary",
+              "value": "=PTM auto-generate ran but no reports were created.\nMonth: {{ $json.month }}\nReason: {{ $json.note || 'Either no teachers opted in, or all opted-in students already have a report this month.' }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "format-noop",
+      "name": "Format no-op summary",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [-336, 192]
+    }
+  ],
+  "connections": {
+    "Daily 06:00": {
+      "main": [[{ "node": "Compute month + config", "type": "main", "index": 0 }]]
+    },
+    "Compute month + config": {
+      "main": [[{ "node": "Run batch (PTM backend)", "type": "main", "index": 0 }]]
+    },
+    "Run batch (PTM backend)": {
+      "main": [[{ "node": "Anything generated?", "type": "main", "index": 0 }]]
+    },
+    "Anything generated?": {
+      "main": [
+        [{ "node": "Format success summary", "type": "main", "index": 0 }],
+        [{ "node": "Format no-op summary", "type": "main", "index": 0 }]
+      ]
+    }
+  },
+  "settings": { "executionOrder": "v1" },
+  "active": false,
+  "pinData": {},
+  "meta": { "instanceId": "ptm-auto-generate-v2" }
+}

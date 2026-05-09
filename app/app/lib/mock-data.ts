@@ -219,6 +219,8 @@ export interface ReportDraft {
   ai_confidence?: AIConfidence;
   _inferred_fields: string[];
   _evidence?: Partial<Record<string, Evidence[]>>;
+  /** Section keys (from PDF_SECTIONS) the teacher chose to omit from the PDF. */
+  _pdf_hidden_sections?: string[];
 }
 
 export interface PTMReport {

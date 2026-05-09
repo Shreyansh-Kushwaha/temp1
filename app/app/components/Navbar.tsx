@@ -3,13 +3,14 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { AlertTriangle, Clock, PlusCircle, LogOut, Shield } from "lucide-react";
+import { AlertTriangle, Clock, PlusCircle, LogOut, Shield, Bot } from "lucide-react";
 import { getAuth, clearAuth, type AuthState } from "@/app/lib/auth";
 
 const NAV_LINKS = [
   { href: "/ptm", label: "Generate", Icon: PlusCircle },
   { href: "/ptm/pending", label: "Pending", Icon: Clock },
   { href: "/ptm/escalated", label: "Escalated", Icon: AlertTriangle },
+  { href: "/ptm/automation", label: "Automation", Icon: Bot },
 ];
 
 export default function Navbar() {

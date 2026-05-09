@@ -18,6 +18,7 @@ import ActionPlanCard from "@/app/components/ActionPlanCard";
 import ToneSelector from "@/app/components/ToneSelector";
 import DetailLevelSelector from "@/app/components/DetailLevelSelector";
 import AudioSummaryCard from "@/app/components/AudioSummaryCard";
+import PdfSectionsPanel from "./PdfSectionsPanel";
 import {
   type PTMReport,
   type ToneWarmth,
@@ -630,6 +631,21 @@ export default function ReportPreviewPage({ params }: { params: Promise<{ id: st
             {d.ai_confidence && <ConfidencePanel confidence={d.ai_confidence} />}
 
             <AudioSummaryCard reportId={id} hasScript={!!d.audio_script} />
+
+            <PdfSectionsPanel
+              reportId={id}
+              draft={d}
+              onSaved={(hidden) =>
+                setReport((prev) =>
+                  prev
+                    ? {
+                        ...prev,
+                        draft_content: { ...prev.draft_content, _pdf_hidden_sections: hidden },
+                      }
+                    : prev
+                )
+              }
+            />
 
             {currentStatus === "pending" && (
               <div className="bg-white rounded-2xl border border-[var(--ss-i-200)] shadow-[var(--ss-shadow)] p-5">

@@ -31,12 +31,13 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# Allow localhost + any *.vercel.app deploy + an explicit FRONTEND_URL override.
+# Allow localhost + any *.vercel.app deploy + any *.app.github.dev Codespace +
+# an explicit FRONTEND_URL override.
 _explicit = [o for o in ("http://localhost:3000", os.getenv("FRONTEND_URL", "")) if o]
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_explicit,
-    allow_origin_regex=r"https://.*\.vercel\.app",
+    allow_origin_regex=r"https://.*\.(vercel\.app|app\.github\.dev)",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

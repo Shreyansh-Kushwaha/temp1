@@ -5,6 +5,16 @@ import { usePathname, useRouter } from "next/navigation";
 import { getAuth } from "@/app/lib/auth";
 
 const PUBLIC_PATHS = new Set(["/login", "/"]);
+// Print pages render via the backend's Playwright PDF service which has no
+// browser session — they must be accessible without auth. The URL is keyed
+// by the report id which is already an unguessable UUID.
+const PRINT_PATH_RE = /^\/ptm\/[^/]+\/print$/;
+
+function isPathPublic(pathname: string | null | undefined): boolean {
+  if (!pathname) return false;
+  if (PUBLIC_PATHS.has(pathname)) return true;
+  return PRINT_PATH_RE.test(pathname);
+}
 
 export default function AuthGate({ children }: { children: React.ReactNode }) {
   const router = useRouter();
@@ -13,7 +23,7 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     const auth = getAuth();
-    const isPublic = PUBLIC_PATHS.has(pathname ?? "");
+    const isPublic = isPathPublic(pathname);
 
     if (!auth && !isPublic) {
       router.replace("/login");
@@ -30,7 +40,7 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     const handler = () => {
       const auth = getAuth();
-      const isPublic = PUBLIC_PATHS.has(pathname ?? "");
+      const isPublic = isPathPublic(pathname);
       if (!auth && !isPublic) router.replace("/login");
       if (auth && pathname === "/login") router.replace("/ptm/pending");
     };

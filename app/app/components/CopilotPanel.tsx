@@ -2,10 +2,19 @@
 
 import { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Sparkles, X, Send, Loader2 } from "lucide-react";
+import {
+  Sparkles, X, Send, Loader2, ChevronDown, ChevronUp,
+  TrendingUp, Target, Users, AlertCircle, BookOpen, Award,
+  MessageSquare, Calendar, BarChart3, Lightbulb, Heart, BookmarkPlus,
+} from "lucide-react";
 import { api } from "@/app/lib/api";
 import ChatMessage from "@/app/components/ChatMessage";
 import SuggestedPromptChips from "@/app/components/SuggestedPromptChips";
+import {
+  QUICK_PROMPTS,
+  PROMPT_CATEGORIES,
+  type PromptCategory,
+} from "@/app/lib/copilot-prompts";
 
 interface UIMessage {
   id: string;
@@ -14,13 +23,10 @@ interface UIMessage {
   stream?: boolean;
 }
 
-const DEFAULT_PROMPTS = [
-  "What changed this month?",
-  "What are weak areas?",
-  "Summarize progress",
-  "How should parents help?",
-  "Explain confidence drop",
-];
+const CATEGORY_ICONS: Record<PromptCategory["icon"], typeof Sparkles> = {
+  TrendingUp, Sparkles, Target, Users, AlertCircle, BookOpen,
+  Award, MessageSquare, Calendar, BarChart3, Lightbulb, Heart,
+};
 
 export default function CopilotPanel({
   studentId,
@@ -32,10 +38,12 @@ export default function CopilotPanel({
   const [open, setOpen] = useState(false);
   const [messages, setMessages] = useState<UIMessage[]>([]);
   const [conversationId, setConversationId] = useState<string | undefined>();
-  const [prompts, setPrompts] = useState<string[]>(DEFAULT_PROMPTS);
+  const [prompts, setPrompts] = useState<string[]>(QUICK_PROMPTS);
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [browseOpen, setBrowseOpen] = useState(false);
+  const [openCategory, setOpenCategory] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
 
@@ -148,7 +156,7 @@ export default function CopilotPanel({
               style={{ background: "var(--ss-bg)" }}
             >
               {messages.length === 0 && (
-                <div className="py-6">
+                <div className="py-4">
                   <p className="text-xs text-[var(--ss-i-400)] mb-3 leading-relaxed">
                     Ask anything about{" "}
                     <span className="font-semibold text-[var(--ss-i-700)]">
@@ -157,6 +165,96 @@ export default function CopilotPanel({
                     . The copilot uses the latest report as grounding.
                   </p>
                   <SuggestedPromptChips prompts={prompts} onPick={(p) => void send(p)} />
+
+                  {/* Browse-all-questions expandable */}
+                  <button
+                    type="button"
+                    onClick={() => setBrowseOpen((v) => !v)}
+                    className="mt-4 w-full flex items-center justify-between gap-2 px-3 py-2 rounded-xl bg-white border border-[var(--ss-i-200)] hover:border-[var(--ss-o-300)] transition-colors text-xs font-semibold text-[var(--ss-i-700)]"
+                  >
+                    <span className="flex items-center gap-1.5">
+                      <BookmarkPlus size={12} className="text-[var(--ss-o-500)]" />
+                      Browse all questions
+                      <span className="text-[10px] font-normal text-[var(--ss-i-400)] ml-1">
+                        {PROMPT_CATEGORIES.reduce((n, c) => n + c.prompts.length, 0)} ideas across {PROMPT_CATEGORIES.length} topics
+                      </span>
+                    </span>
+                    {browseOpen ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+                  </button>
+
+                  <AnimatePresence initial={false}>
+                    {browseOpen && (
+                      <motion.div
+                        initial={{ opacity: 0, height: 0 }}
+                        animate={{ opacity: 1, height: "auto" }}
+                        exit={{ opacity: 0, height: 0 }}
+                        transition={{ duration: 0.18 }}
+                        className="overflow-hidden mt-2"
+                      >
+                        <div className="space-y-1.5">
+                          {PROMPT_CATEGORIES.map((cat) => {
+                            const Icon = CATEGORY_ICONS[cat.icon];
+                            const expanded = openCategory === cat.id;
+                            return (
+                              <div
+                                key={cat.id}
+                                className="rounded-xl border border-[var(--ss-i-200)] bg-white overflow-hidden"
+                              >
+                                <button
+                                  type="button"
+                                  onClick={() => setOpenCategory(expanded ? null : cat.id)}
+                                  className="w-full flex items-center justify-between gap-2 px-3 py-2 hover:bg-[var(--ss-o-50)] transition-colors"
+                                >
+                                  <span className="flex items-center gap-2">
+                                    <span className="w-6 h-6 rounded-md bg-[var(--ss-o-50)] flex items-center justify-center">
+                                      <Icon size={11} className="text-[var(--ss-o-600)]" />
+                                    </span>
+                                    <span className="text-[11px] font-semibold text-[var(--ss-i-800)]">
+                                      {cat.label}
+                                    </span>
+                                    <span className="text-[10px] text-[var(--ss-i-400)] font-normal">
+                                      {cat.prompts.length}
+                                    </span>
+                                  </span>
+                                  {expanded ? <ChevronUp size={11} /> : <ChevronDown size={11} />}
+                                </button>
+                                <AnimatePresence initial={false}>
+                                  {expanded && (
+                                    <motion.div
+                                      initial={{ opacity: 0, height: 0 }}
+                                      animate={{ opacity: 1, height: "auto" }}
+                                      exit={{ opacity: 0, height: 0 }}
+                                      transition={{ duration: 0.15 }}
+                                      className="overflow-hidden border-t border-[var(--ss-i-100)] bg-[var(--ss-bg)]"
+                                    >
+                                      <ul className="py-1.5">
+                                        {cat.prompts.map((p) => (
+                                          <li key={p}>
+                                            <button
+                                              type="button"
+                                              onClick={() => {
+                                                setBrowseOpen(false);
+                                                setOpenCategory(null);
+                                                void send(p);
+                                              }}
+                                              className="w-full text-left px-3 py-1.5 text-[11px] text-[var(--ss-i-700)] hover:bg-white hover:text-[var(--ss-o-700)] transition-colors leading-snug"
+                                            >
+                                              <span className="text-[var(--ss-o-500)] mr-1.5">›</span>
+                                              {p}
+                                            </button>
+                                          </li>
+                                        ))}
+                                      </ul>
+                                    </motion.div>
+                                  )}
+                                </AnimatePresence>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
                 </div>
               )}
               {messages.map((m) => (

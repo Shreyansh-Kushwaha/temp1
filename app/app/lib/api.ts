@@ -74,6 +74,33 @@ export const api = {
     list(): Promise<{ teacher_name: string }[]> {
       return apiFetch("/api/ptm/teachers");
     },
+
+    listAutoGenerate(): Promise<Array<{ teacher_name: string; auto_generate_enabled: boolean }>> {
+      return apiFetch(`/api/ptm/teachers/auto-generate`);
+    },
+
+    setAutoGenerate(teacher_name: string, enabled: boolean): Promise<{ teacher_name: string; auto_generate_enabled: boolean }> {
+      return apiFetch(`/api/ptm/teachers/auto-generate`, {
+        method: "PATCH",
+        body: JSON.stringify({ teacher_name, enabled }),
+      });
+    },
+  },
+
+  autoGenerate: {
+    run(month?: string, batch_size: number = 20): Promise<{
+      month: string;
+      batch_size: number;
+      processed: Array<{ report_id: string; student_id: string; student_name: string; teacher_name?: string }>;
+      skipped_existing: string[];
+      skipped_no_optin: string[];
+      remaining: number;
+    }> {
+      const params = new URLSearchParams();
+      if (month) params.set("month", month);
+      params.set("batch_size", String(batch_size));
+      return apiFetch(`/api/ptm/auto-generate/run?${params.toString()}`, { method: "POST" });
+    },
   },
 
   students: {
@@ -106,6 +133,10 @@ export const api = {
         method: "PATCH",
         body: JSON.stringify({ draft_content }),
       });
+    },
+
+    renderPdf(id: string): Promise<{ pdf_url: string; version_number: number }> {
+      return apiFetch(`/api/ptm/reports/${id}/pdf`, { method: "POST" });
     },
 
     approve(
