@@ -5,7 +5,7 @@
 --   (student_id, reporting_month) get all-but-the-most-recent marked deleted.
 --   "Most recent" = max(updated_at). Ties broken by id (deterministic).
 UPDATE ptm_reports
-   SET deleted_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+   SET deleted_at = to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
  WHERE deleted_at IS NULL
    AND id NOT IN (
      SELECT id FROM (
@@ -16,7 +16,7 @@ UPDATE ptm_reports
               ) AS rn
        FROM ptm_reports
        WHERE deleted_at IS NULL
-     )
+     ) AS ranked
      WHERE rn = 1
    );
 

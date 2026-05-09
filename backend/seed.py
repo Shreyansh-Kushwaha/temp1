@@ -128,10 +128,11 @@ async def seed():
     try:
         for r in REPORTS:
             await db.execute(
-                """INSERT OR IGNORE INTO ptm_reports
+                """INSERT INTO ptm_reports
                    (id, student_id, teacher_id, student_name, subject, reporting_month,
                     status, draft_content, teacher_note, regeneration_count, created_at, updated_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                   ON CONFLICT (id) DO NOTHING""",
                 [
                     r["id"], r["student_id"], r["teacher_id"], r["student_name"],
                     r["subject"], r["reporting_month"], r["status"],

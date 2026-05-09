@@ -185,6 +185,8 @@ async def _generate_real(
     tone: ToneOptions | None,
 ) -> dict:
     import google.generativeai as genai
+    from google.api_core.exceptions import GoogleAPIError, ResourceExhausted
+    from fastapi import HTTPException
 
     genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
 
@@ -197,7 +199,21 @@ async def _generate_real(
         ),
     )
 
-    response = model.generate_content(_build_user_prompt(data, overrides, tone))
+    try:
+        response = model.generate_content(_build_user_prompt(data, overrides, tone))
+    except ResourceExhausted as e:
+        # 429 — Gemini quota / per-minute rate limit. Surface a typed status
+        # so the frontend can render a friendly toast instead of a raw 500.
+        raise HTTPException(
+            status_code=429,
+            detail="AI quota reached. Please try again in a minute, or contact admin if this keeps happening.",
+        ) from e
+    except GoogleAPIError as e:
+        # Any other Gemini-side failure (auth, invalid arg, transport).
+        raise HTTPException(
+            status_code=502,
+            detail=f"AI service error: {type(e).__name__}",
+        ) from e
     raw = response.text.strip()
 
     if raw.startswith("```"):

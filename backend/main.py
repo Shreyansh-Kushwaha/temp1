@@ -11,7 +11,7 @@ from fastapi.staticfiles import StaticFiles
 
 load_dotenv()
 
-from db.connection import run_migrations
+from db.connection import close_pool, init_pool, run_migrations
 from routers.ptm import router as ptm_router
 
 logging.basicConfig(level=logging.INFO)
@@ -20,8 +20,12 @@ logger = logging.getLogger("ptm")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Startup: open the asyncpg pool then apply any pending migrations.
+    await init_pool()
     await run_migrations()
     yield
+    # Shutdown: close the pool cleanly so Render/uvicorn don't leak conns.
+    await close_pool()
 
 
 app = FastAPI(
