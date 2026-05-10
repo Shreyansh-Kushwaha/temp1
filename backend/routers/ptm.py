@@ -807,7 +807,13 @@ async def auto_generate_run(
 
 
 @router.get("/reports")
-async def list_reports(status: str | None = None, teacher_id: str | None = None, teacher_name: str | None = None):
+async def list_reports(
+    status: str | None = None,
+    teacher_id: str | None = None,
+    teacher_name: str | None = None,
+    student_id: str | None = None,
+    reporting_month: str | None = None,
+):
     db = await get_db()
     try:
         clauses, params = ["deleted_at IS NULL"], []
@@ -821,6 +827,12 @@ async def list_reports(status: str | None = None, teacher_id: str | None = None,
             # Postgres JSONB path query — draft_content is stored as TEXT, cast at read time
             clauses.append("(draft_content::jsonb)->'header'->>'teacher_name' = ?")
             params.append(teacher_name)
+        if student_id:
+            clauses.append("student_id = ?")
+            params.append(student_id)
+        if reporting_month:
+            clauses.append("reporting_month = ?")
+            params.append(reporting_month)
         where = " AND ".join(clauses)
         async with db.execute(f"SELECT * FROM ptm_reports WHERE {where} ORDER BY created_at DESC", params) as cur:
             rows = await cur.fetchall()

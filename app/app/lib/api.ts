@@ -202,11 +202,19 @@ export const api = {
   },
 
   reports: {
-    list(params?: { status?: string; teacher_id?: string; teacher_name?: string }): Promise<PTMReport[]> {
+    list(params?: {
+      status?: string;
+      teacher_id?: string;
+      teacher_name?: string;
+      student_id?: string;
+      reporting_month?: string;
+    }): Promise<PTMReport[]> {
       const qs = new URLSearchParams();
       if (params?.status) qs.set("status", params.status);
       if (params?.teacher_id) qs.set("teacher_id", params.teacher_id);
       if (params?.teacher_name) qs.set("teacher_name", params.teacher_name);
+      if (params?.student_id) qs.set("student_id", params.student_id);
+      if (params?.reporting_month) qs.set("reporting_month", params.reporting_month);
       const query = qs.toString() ? `?${qs}` : "";
       return apiFetch<PTMReport[]>(`/api/ptm/reports${query}`);
     },

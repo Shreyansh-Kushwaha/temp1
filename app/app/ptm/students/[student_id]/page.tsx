@@ -1,15 +1,16 @@
 "use client";
 
-import { useState, useEffect, use } from "react";
-import { useSearchParams } from "next/navigation";
+import { useState, useEffect, use, useMemo } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   ArrowLeft, Calendar, CheckSquare, Square, Loader2, AlertCircle,
-  ChevronRight, Sparkles, BookOpen, Brain, Wand2,
+  ChevronRight, Sparkles, BookOpen, Brain, Wand2, FileText,
 } from "lucide-react";
 import Link from "next/link";
 import Navbar from "@/app/components/Navbar";
 import CopilotPanel from "@/app/components/CopilotPanel";
 import { api, type SessionInfo, type GenerateFromSessionsBody } from "@/app/lib/api";
+import { type PTMReport } from "@/app/lib/mock-data";
 import { useToast } from "@/app/components/ToastProvider";
 import { useGenerationQueue } from "@/app/lib/generation-queue";
 
@@ -64,8 +65,44 @@ export default function StudentSessionPage({ params }: { params: Promise<PagePar
   // (pending/success/error) lives in the global generation-queue toast.
   const [justStarted, setJustStarted] = useState(false);
   const [autoFilling, setAutoFilling] = useState(false);
+  // All non-deleted reports for this student, refreshed on mount + after a
+  // generation completes. Powers the "Open existing report" button so the
+  // teacher doesn't run into the duplicate-per-month constraint.
+  const [studentReports, setStudentReports] = useState<PTMReport[]>([]);
   const toast = useToast();
   const { enqueue } = useGenerationQueue();
+  const router = useRouter();
+
+  // Derive the target reporting_month exactly the way the backend does
+  // (earliest selected session date → its month-01; otherwise current month).
+  const targetMonth = useMemo(() => {
+    const dates = sessions
+      .filter((s) => selectedIds.has(s.session_id) && s.date)
+      .map((s) => s.date);
+    if (dates.length > 0) {
+      const earliest = dates.reduce((a, b) => (a < b ? a : b));
+      return `${earliest.slice(0, 7)}-01`;
+    }
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-01`;
+  }, [sessions, selectedIds]);
+
+  const existingReport = useMemo(
+    () => studentReports.find((r) => r.reporting_month === targetMonth),
+    [studentReports, targetMonth],
+  );
+
+  function refreshStudentReports() {
+    api.reports
+      .list({ student_id })
+      .then((data) => setStudentReports(data))
+      .catch(() => { /* silent — gate is best-effort, backend 409 still catches dupes */ });
+  }
+  useEffect(() => {
+    if (!student_id) return;
+    refreshStudentReports();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [student_id]);
 
   async function handleAutoFill() {
     if (selectedIds.size === 0) {
@@ -369,32 +406,48 @@ export default function StudentSessionPage({ params }: { params: Promise<PagePar
           </div>
         </Section>
 
-        {/* ── Generate button ────────────────────────────────────────────────── */}
+        {/* ── Generate / Open existing button ─────────────────────────────────── */}
         <div className="sticky bottom-6 mt-8">
-          <button
-            onClick={handleGenerate}
-            disabled={selectedIds.size === 0}
-            className="w-full flex items-center justify-center gap-2.5 py-4 rounded-2xl bg-[var(--ss-o-500)] text-white font-bold text-base shadow-[var(--ss-shadow-brand)] hover:bg-[var(--ss-o-600)] disabled:opacity-50 disabled:cursor-not-allowed transition-all"
-            style={{ fontFamily: "var(--font-jakarta)" }}
-          >
-            {justStarted ? (
-              <>
-                <CheckSquare size={18} />
-                Started — see toast
-              </>
-            ) : (
-              <>
-                <Sparkles size={18} />
-                Generate Report
-                {selectedIds.size > 0 && (
-                  <span className="ml-1 text-white/70 font-normal text-sm">
-                    from {selectedIds.size} session{selectedIds.size !== 1 ? "s" : ""}
-                  </span>
-                )}
-                <ChevronRight size={16} />
-              </>
-            )}
-          </button>
+          {existingReport ? (
+            <button
+              onClick={() => router.push(`/ptm/${existingReport.id}`)}
+              className="w-full flex items-center justify-center gap-2.5 py-4 rounded-2xl bg-[var(--ss-i-900)] text-white font-bold text-base shadow-[0_8px_24px_rgba(15,17,21,.18)] hover:bg-black transition-all"
+              style={{ fontFamily: "var(--font-jakarta)" }}
+            >
+              <FileText size={18} />
+              Open existing report
+              <span className="ml-1 text-white/70 font-normal text-sm">
+                · {new Date(existingReport.reporting_month).toLocaleDateString("en-IN", { month: "long", year: "numeric" })}
+                {" · "}{existingReport.status}
+              </span>
+              <ChevronRight size={16} />
+            </button>
+          ) : (
+            <button
+              onClick={handleGenerate}
+              disabled={selectedIds.size === 0}
+              className="w-full flex items-center justify-center gap-2.5 py-4 rounded-2xl bg-[var(--ss-o-500)] text-white font-bold text-base shadow-[var(--ss-shadow-brand)] hover:bg-[var(--ss-o-600)] disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+              style={{ fontFamily: "var(--font-jakarta)" }}
+            >
+              {justStarted ? (
+                <>
+                  <CheckSquare size={18} />
+                  Started — see toast
+                </>
+              ) : (
+                <>
+                  <Sparkles size={18} />
+                  Generate Report
+                  {selectedIds.size > 0 && (
+                    <span className="ml-1 text-white/70 font-normal text-sm">
+                      from {selectedIds.size} session{selectedIds.size !== 1 ? "s" : ""}
+                    </span>
+                  )}
+                  <ChevronRight size={16} />
+                </>
+              )}
+            </button>
+          )}
 
           {selectedIds.size === 0 && (
             <p className="text-center text-xs text-[var(--ss-i-400)] mt-2">
