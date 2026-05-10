@@ -122,6 +122,28 @@ async def render_report_pdf(report_id: str) -> bytes:
             await browser.close()
 
 
+async def _mark_pending_email_failed(report_id: str, error: str) -> None:
+    """Update the most recent pending email-channel log row to 'failed' so a
+    PDF/render-step crash doesn't leave the row stuck in pending forever."""
+    sent_at = datetime.now(timezone.utc).isoformat()
+    db = await get_db()
+    try:
+        async with db.execute(
+            "SELECT id FROM ptm_delivery_log WHERE report_id=? AND channel='email' "
+            "AND status='pending' ORDER BY sent_at DESC LIMIT 1",
+            [report_id],
+        ) as cur:
+            existing = await cur.fetchone()
+        if existing:
+            await db.execute(
+                "UPDATE ptm_delivery_log SET status='failed', sent_at=?, error_msg=? WHERE id=?",
+                [sent_at, error, existing[0]],
+            )
+            await db.commit()
+    finally:
+        await db.close()
+
+
 async def generate_and_store_pdf(
     report_id: str,
     version_number: int,
@@ -141,10 +163,15 @@ async def generate_and_store_pdf(
         public_url = await asyncio.to_thread(
             storage_service.upload_report_pdf, pdf_bytes, report_id, version_number
         )
-    except Exception:
+    except Exception as e:
         logger.exception(
             "PDF render/upload failed: report=%s version=%s", report_id, version_number
         )
+        if send_email:
+            # Don't leave the pre-inserted "pending" log row stuck forever.
+            await _mark_pending_email_failed(
+                report_id, error=f"pdf_render_failed: {type(e).__name__}"[:300]
+            )
         return None
 
     ts = datetime.now(timezone.utc).isoformat()
@@ -275,7 +302,7 @@ async def _email_approved_report(
     try:
         async with db.execute(
             "SELECT id FROM ptm_delivery_log WHERE report_id=? AND channel='email' "
-            "ORDER BY sent_at DESC LIMIT 1",
+            "AND status='pending' ORDER BY sent_at DESC LIMIT 1",
             [report_id],
         ) as cur:
             existing = await cur.fetchone()

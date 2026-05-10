@@ -9,7 +9,6 @@ import {
   Clock,
   Inbox,
   Mail,
-  MessageCircle,
   RefreshCw,
   Search,
   ScrollText,
@@ -18,6 +17,7 @@ import {
   XCircle,
 } from "lucide-react";
 import Navbar from "@/app/components/Navbar";
+import ApproveModal from "@/app/components/ApproveModal";
 import { api } from "@/app/lib/api";
 import type {
   DeliveryLogEntry,
@@ -26,7 +26,6 @@ import type {
 } from "@/app/lib/api";
 
 type StatusFilter = "all" | "sent" | "failed" | "skipped" | "pending";
-type ChannelFilter = "all" | "email" | "whatsapp";
 type RangeFilter = "all" | "today" | "7d" | "30d";
 
 const STATUS_TABS: { key: StatusFilter; label: string }[] = [
@@ -35,12 +34,6 @@ const STATUS_TABS: { key: StatusFilter; label: string }[] = [
   { key: "failed", label: "Failed" },
   { key: "skipped", label: "Skipped" },
   { key: "pending", label: "Pending" },
-];
-
-const CHANNEL_OPTIONS: { key: ChannelFilter; label: string }[] = [
-  { key: "all", label: "All channels" },
-  { key: "email", label: "Email" },
-  { key: "whatsapp", label: "WhatsApp" },
 ];
 
 const RANGE_OPTIONS: { key: RangeFilter; label: string }[] = [
@@ -147,15 +140,7 @@ function StatusPill({ status }: { status: DeliveryStatus }) {
   );
 }
 
-function ChannelIcon({ channel }: { channel: string }) {
-  if (channel === "whatsapp") {
-    return (
-      <span className="inline-flex items-center gap-1 text-[12px] text-[var(--ss-i-600)]">
-        <MessageCircle size={12} className="text-emerald-600" />
-        WhatsApp
-      </span>
-    );
-  }
+function ChannelIcon({ channel: _channel }: { channel: string }) {
   return (
     <span className="inline-flex items-center gap-1 text-[12px] text-[var(--ss-i-600)]">
       <Mail size={12} className="text-[var(--ss-o-600)]" />
@@ -169,13 +154,13 @@ export default function LogsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
-  const [channelFilter, setChannelFilter] = useState<ChannelFilter>("all");
   const [rangeFilter, setRangeFilter] = useState<RangeFilter>("all");
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [refreshing, setRefreshing] = useState(false);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [resendingId, setResendingId] = useState<string | null>(null);
+  const [resendTarget, setResendTarget] = useState<DeliveryLogEntry | null>(null);
   const [toast, setToast] = useState<{ kind: "ok" | "err"; msg: string } | null>(null);
 
   // Debounce search input
@@ -191,7 +176,7 @@ export default function LogsPage() {
     try {
       const result = await api.deliveryLog.list({
         status: statusFilter !== "all" ? statusFilter : undefined,
-        channel: channelFilter !== "all" ? channelFilter : undefined,
+        channel: "email",
         since: rangeToSince(rangeFilter),
         q: debouncedSearch || undefined,
         limit: 200,
@@ -203,7 +188,7 @@ export default function LogsPage() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [statusFilter, channelFilter, rangeFilter, debouncedSearch]);
+  }, [statusFilter, rangeFilter, debouncedSearch]);
 
   useEffect(() => {
     fetchLogs();
@@ -215,27 +200,32 @@ export default function LogsPage() {
     return () => clearInterval(t);
   }, [fetchLogs]);
 
-  const handleResend = useCallback(async (logId: string) => {
-    setResendingId(logId);
-    setToast(null);
-    try {
-      const result = await api.deliveryLog.resend(logId);
-      const channelLabel = result.channel === "whatsapp" ? "WhatsApp" : "Email";
-      if (result.status === "sent") {
-        setToast({ kind: "ok", msg: `${channelLabel} resent successfully.` });
-      } else if (result.status === "skipped") {
-        setToast({ kind: "err", msg: `${channelLabel} skipped: ${result.error ?? "unknown reason"}` });
-      } else {
-        setToast({ kind: "err", msg: `${channelLabel} ${result.status}: ${result.error ?? ""}` });
+  const openResend = useCallback((entry: DeliveryLogEntry) => {
+    setResendTarget(entry);
+  }, []);
+
+  // Called by ApproveModal when the teacher confirms a recipient. Throws on
+  // failure so the modal surfaces the error inline.
+  const performResend = useCallback(
+    async (logId: string, recipient: string) => {
+      setResendingId(logId);
+      try {
+        const result = await api.deliveryLog.resend(logId, recipient);
+        if (result.status === "sent") {
+          setToast({ kind: "ok", msg: `Email resent to ${recipient}.` });
+        } else if (result.status === "skipped") {
+          throw new Error(result.error || "Send was skipped");
+        } else {
+          throw new Error(result.error || `Send ${result.status}`);
+        }
+        await fetchLogs({ silent: true });
+      } finally {
+        setResendingId(null);
+        setTimeout(() => setToast(null), 5000);
       }
-      await fetchLogs({ silent: true });
-    } catch (e) {
-      setToast({ kind: "err", msg: e instanceof Error ? e.message : "Resend failed" });
-    } finally {
-      setResendingId(null);
-      setTimeout(() => setToast(null), 5000);
-    }
-  }, [fetchLogs]);
+    },
+    [fetchLogs],
+  );
 
   const counters = useMemo(() => {
     const e = data?.entries ?? [];
@@ -251,6 +241,23 @@ export default function LogsPage() {
   return (
     <div className="min-h-screen" style={{ background: "var(--ss-bg)" }}>
       <Navbar />
+
+      {/* Resend recipient picker — reuses ApproveModal so the on-record vs.
+          custom email choice is identical to the approval flow. */}
+      {resendTarget && (
+        <ApproveModal
+          reportId={resendTarget.report_id}
+          studentName={resendTarget.student_name ?? "this student"}
+          open={true}
+          onClose={() => setResendTarget(null)}
+          onApproved={() => setResendTarget(null)}
+          showTeacherNote={false}
+          title="Resend Report"
+          subtitle={`Confirm where to resend ${resendTarget.student_name ?? "the"} report.`}
+          confirmLabel="Resend"
+          onConfirm={(recipient) => performResend(resendTarget.id, recipient)}
+        />
+      )}
 
       {/* Toast */}
       {toast && (
@@ -348,18 +355,6 @@ export default function LogsPage() {
 
           <div className="flex gap-2 md:contents">
             <select
-              value={channelFilter}
-              onChange={(e) => setChannelFilter(e.target.value as ChannelFilter)}
-              className="flex-1 md:flex-none px-3 py-2 md:py-1.5 rounded-full border border-[var(--ss-i-200)] bg-white text-xs font-medium text-[var(--ss-i-700)] min-h-[40px] md:min-h-0"
-            >
-              {CHANNEL_OPTIONS.map((c) => (
-                <option key={c.key} value={c.key}>
-                  {c.label}
-                </option>
-              ))}
-            </select>
-
-            <select
               value={rangeFilter}
               onChange={(e) => setRangeFilter(e.target.value as RangeFilter)}
               className="flex-1 md:flex-none px-3 py-2 md:py-1.5 rounded-full border border-[var(--ss-i-200)] bg-white text-xs font-medium text-[var(--ss-i-700)] min-h-[40px] md:min-h-0"
@@ -448,7 +443,7 @@ export default function LogsPage() {
                           entry={entry}
                           isExpanded={isExpanded}
                           onToggle={() => setExpanded(isExpanded ? null : entry.id)}
-                          onResend={() => handleResend(entry.id)}
+                          onResend={() => openResend(entry)}
                           resending={resendingId === entry.id}
                         />
                       );
@@ -467,7 +462,7 @@ export default function LogsPage() {
                       entry={entry}
                       isExpanded={isExpanded}
                       onToggle={() => setExpanded(isExpanded ? null : entry.id)}
-                      onResend={() => handleResend(entry.id)}
+                      onResend={() => openResend(entry)}
                       resending={resendingId === entry.id}
                     />
                   );
@@ -500,7 +495,7 @@ function RowGroup({
 }) {
   const overrideMismatch =
     entry.intended_recipient && entry.recipient && entry.intended_recipient !== entry.recipient;
-  const resendLabel = entry.channel === "whatsapp" ? "Resend WhatsApp" : "Resend email";
+  const resendLabel = "Resend email";
 
   return (
     <>
@@ -639,7 +634,7 @@ function MobileCard({
 }) {
   const overrideMismatch =
     entry.intended_recipient && entry.recipient && entry.intended_recipient !== entry.recipient;
-  const resendLabel = entry.channel === "whatsapp" ? "Resend WhatsApp" : "Resend email";
+  const resendLabel = "Resend email";
 
   return (
     <li className="px-4 py-3.5">

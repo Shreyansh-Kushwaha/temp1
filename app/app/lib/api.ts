@@ -344,14 +344,17 @@ export const api = {
       return apiFetch<DeliveryLogResponse>(`/api/ptm/delivery-log${query}`);
     },
 
-    resend(logId: string): Promise<{
+    resend(logId: string, recipient_email?: string): Promise<{
       id: string;
       channel: string;
       status: string;
       error: string | null;
       recipient?: string | null;
     }> {
-      return apiFetch(`/api/ptm/delivery-log/${logId}/resend`, { method: "POST" });
+      return apiFetch(`/api/ptm/delivery-log/${logId}/resend`, {
+        method: "POST",
+        body: JSON.stringify({ recipient_email: recipient_email ?? null }),
+      });
     },
   },
 

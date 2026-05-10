@@ -574,7 +574,7 @@ export default function LandingPage() {
                 </h1>
 
                 <p className="text-lg leading-relaxed mb-8 max-w-lg" style={{ color: "rgba(255,255,255,0.55)" }}>
-                  Select sessions, fill a quick form, and get a detailed 3-page parent report in under 30 seconds. Teachers review and approve — parents receive it via email and WhatsApp instantly.
+                  Select sessions, fill a quick form, and get a detailed 3-page parent report in under 30 seconds. Teachers review and approve — parents receive it by email instantly.
                 </p>
 
                 <div className="flex flex-col sm:flex-row items-center lg:items-start justify-center lg:justify-start gap-3 mb-10">
@@ -1035,7 +1035,7 @@ function ProductMockup() {
           </div>
           <div>
             <div className="text-[10px] font-bold text-white">Delivered</div>
-            <div className="text-[9px]" style={{ color: "rgba(255,255,255,0.4)" }}>Email + WhatsApp · just now</div>
+            <div className="text-[9px]" style={{ color: "rgba(255,255,255,0.4)" }}>Email · just now</div>
           </div>
         </div>
       </div>

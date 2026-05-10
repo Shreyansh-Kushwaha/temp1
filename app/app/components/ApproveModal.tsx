@@ -11,6 +11,18 @@ interface ApproveModalProps {
   onClose: () => void;
   onApproved: (info: { recipient: string }) => void;
   showTeacherNote?: boolean;
+  /** Custom title shown at the top of the card. */
+  title?: string;
+  /** Custom subtitle below the title. */
+  subtitle?: string;
+  /** Custom label for the confirm button (default "Send Report"). */
+  confirmLabel?: string;
+  /**
+   * If provided, replaces the default `api.reports.approve` call. Receives
+   * the chosen recipient email and the (trimmed) teacher note (when shown).
+   * The modal still resolves `onApproved` with the recipient on success.
+   */
+  onConfirm?: (recipientEmail: string, teacherNote: string) => Promise<void>;
 }
 
 type Choice = "on_record" | "custom";
@@ -24,6 +36,10 @@ export default function ApproveModal({
   onClose,
   onApproved,
   showTeacherNote = true,
+  title = "Approve Report",
+  subtitle,
+  confirmLabel = "Send Report",
+  onConfirm,
 }: ApproveModalProps) {
   const [parentEmail, setParentEmail] = useState<string | null>(null);
   const [loadingEmail, setLoadingEmail] = useState(false);
@@ -79,11 +95,15 @@ export default function ApproveModal({
     }
     setDelivering(true);
     try {
-      await api.reports.approve(
-        reportId,
-        teacherNote.trim() || undefined,
-        choice === "custom" ? customTrimmed : undefined,
-      );
+      if (onConfirm) {
+        await onConfirm(recipient, teacherNote.trim());
+      } else {
+        await api.reports.approve(
+          reportId,
+          teacherNote.trim() || undefined,
+          choice === "custom" ? customTrimmed : undefined,
+        );
+      }
       onApproved({ recipient });
     } catch (e) {
       const msg =
@@ -117,10 +137,10 @@ export default function ApproveModal({
           className="text-lg font-bold text-[var(--ss-i-900)] mb-1"
           style={{ fontFamily: "var(--font-jakarta)" }}
         >
-          Approve Report
+          {title}
         </h2>
         <p className="text-sm text-[var(--ss-i-400)] mb-5">
-          Confirm where to deliver {firstName}&apos;s report.
+          {subtitle ?? `Confirm where to deliver ${firstName}'s report.`}
         </p>
 
         {/* ── Recipient card ── */}
@@ -258,7 +278,7 @@ export default function ApproveModal({
             ) : (
               <>
                 <Send size={14} />
-                Send Report
+                {confirmLabel}
               </>
             )}
           </button>

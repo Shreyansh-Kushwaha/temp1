@@ -1,7 +1,7 @@
 # PTM AI Agent — Project Overview
 
 ## What it is
-Internal automation for **Sheldon Labs** that replaces the 8–9 page manual Parent-Teacher Meeting report with a **1-page AI-generated report**, gated by teacher approval, then delivered to parents via email (and a mocked WhatsApp channel).
+Internal automation for **Sheldon Labs** that replaces the 8–9 page manual Parent-Teacher Meeting report with a **1-page AI-generated report**, gated by teacher approval, then delivered to parents via email.
 
 ## Goal
 Cut teacher prep time, standardise PTM output, surface confidence/evidence so teachers can correct what the model got wrong, and remove the human bottleneck without removing the human reviewer.
@@ -16,7 +16,7 @@ Cut teacher prep time, standardise PTM output, surface confidence/evidence so te
 | DB | **PostgreSQL** (Supabase pooler in prod, `asyncpg` driver). Migrations in `backend/db/migrations/*.sql`, applied on startup. |
 | Storage | **Supabase Storage** — `pdfs` and `audio` public buckets. |
 | Email | **Gmail SMTP** via `aiosmtplib` (`support@supersheldon.com`). Per-approve custom recipient option in the UI replaces the old env-var redirect — teachers can route any single approval to a test inbox without affecting other sends. |
-| WhatsApp | Mocked — row written to `ptm_delivery_log`, no real send. |
+| WhatsApp | Removed — no longer logged or surfaced. WhatsApp Business credentials still in `.env` but unused. |
 | Wise (student data) | MongoDB (`motor`) — same DB used by the presales CRM. Mock data when `MONGO_CONNECTION_STRING` unset. |
 | Deploy | Backend on **Render** (`supersheldon-ptm.onrender.com`). Frontend on Vercel (any `*.vercel.app`). |
 
@@ -161,8 +161,7 @@ All migrations in `backend/db/migrations/`, run idempotently on startup.
 ### Delivery
 - **Real Gmail SMTP send** with branded HTML body + PDF attachment. PDF is generated in a background task by `pdf_service` (Playwright headless Chromium → MP3 stored in Supabase `pdfs` bucket).
 - **Per-approve recipient override** — the Approve modal lets the teacher swap the on-record parent email for a custom address on a single send (great for QA or sending to a different guardian). The on-record email is still recorded as `intended_recipient` so the Logs page flags overridden sends with a "sent to custom address" chip.
-- **Delivery log** at `/ptm/logs` — searchable, channel filter (email/whatsapp), status filter. One-click resend on any failed/skipped row.
-- **WhatsApp** — log row only; no real send wired up.
+- **Delivery log** at `/ptm/logs` — searchable email-channel log with status / time-range filters. Click resend on any row → opens the same recipient picker as Approve (on-record vs. custom address).
 
 ### Audio summaries
 - 45–60s parent-friendly script generated as part of the report draft.
@@ -244,4 +243,4 @@ Required env vars (see `.env.example`):
 - ✅ Risk signals, concept mastery, knowledge summary, copilot.
 - ✅ Email-on-record confirmation card with custom-recipient override on approve.
 - ✅ Render deploy live at `supersheldon-ptm.onrender.com`.
-- 🚧 Not yet built: real WhatsApp send, n8n monthly cron, Slack reminder bot.
+- 🚧 Not yet built: n8n monthly cron, Slack reminder bot.

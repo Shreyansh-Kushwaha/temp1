@@ -46,7 +46,7 @@ export default function EscalatedPage() {
     try {
       await api.escalated.override(id);
       setReports((prev) => prev.filter((r) => r.id !== id));
-      setToast("Report delivered to parent via email and WhatsApp.");
+      setToast("Report delivered to parent via email.");
       setTimeout(() => setToast(null), 3000);
     } catch (e) {
       setToast(e instanceof Error ? e.message : "Failed to deliver report");

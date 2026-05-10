@@ -19,6 +19,25 @@ from typing import Any
 logger = logging.getLogger("ptm.knowledge")
 
 
+_PLACEHOLDER_VALUES = {"", "unknown", "(unknown)", "none", "n/a", "null"}
+
+
+def _is_placeholder(value: Any) -> bool:
+    """True if value is missing or one of the well-known 'no data' strings."""
+    if value is None:
+        return True
+    if not isinstance(value, str):
+        return False
+    return value.strip().lower() in _PLACEHOLDER_VALUES
+
+
+def _clean(value: Any) -> str | None:
+    """Strip + drop placeholder strings; return None when nothing useful remains."""
+    if not isinstance(value, str):
+        return None
+    return None if _is_placeholder(value) else value.strip()
+
+
 SYSTEM_PROMPT = """You are an academic-intelligence assistant. From the inputs
 provided you build a Student Knowledge Snapshot.
 
@@ -77,7 +96,10 @@ RULES:
 - UPDATE mode: keep every concept from PRIOR_SNAPSHOT unless inputs clearly
   contradict it. Add newly observed concepts. Bump appearances / mastery
   when new sessions reinforce a topic.
-- No code fences. No commentary. Only the JSON object."""
+- No code fences. No commentary. Only the JSON object.
+- For student_name / subject: copy the values exactly as provided in the input.
+  If a value is not provided in the input, output an empty string for that
+  field — never invent placeholders like "unknown" or "(unknown)"."""
 
 
 def _build_user_prompt(
@@ -90,8 +112,12 @@ def _build_user_prompt(
 ) -> str:
     parts: list[str] = []
     parts.append(f"MODE: {mode}")
-    parts.append(f"STUDENT_NAME: {student_name or '(unknown)'}")
-    parts.append(f"SUBJECT: {subject or '(unknown)'}")
+    name_clean = _clean(student_name)
+    subject_clean = _clean(subject)
+    if name_clean:
+        parts.append(f"STUDENT_NAME: {name_clean}")
+    if subject_clean:
+        parts.append(f"SUBJECT: {subject_clean}")
 
     if sessions:
         block = []
@@ -180,8 +206,11 @@ async def generate(
         return None
 
     # Defensive normalisation — the UI relies on these shapes.
-    parsed.setdefault("student_name", student_name)
-    parsed.setdefault("subject", subject)
+    # Reject any "(unknown)" / blank value the model echoed; fall back to the
+    # caller-supplied identity, then to None (the read-side will fill in from
+    # the saved row or the latest report).
+    parsed["student_name"] = _clean(parsed.get("student_name")) or _clean(student_name)
+    parsed["subject"] = _clean(parsed.get("subject")) or _clean(subject)
     parsed.setdefault("attendance_trend", [])
     parsed.setdefault("confidence_trend", [])
     parsed.setdefault("insights", [])

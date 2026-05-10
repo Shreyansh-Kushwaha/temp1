@@ -237,15 +237,18 @@ async def run_email_records_check_endpoint():
     return summary
 
 
+class ResendBody(BaseModel):
+    recipient_email: str | None = None
+
+
 @router.post("/delivery-log/{log_id}/resend")
-async def resend_delivery(log_id: str):
-    """Resend a previous delivery using the report's existing PDF.
+async def resend_delivery(log_id: str, body: ResendBody | None = None):
+    """Resend a previous delivery using a freshly rendered PDF.
 
     Inserts a new ptm_delivery_log row with the new attempt's outcome rather
     than overwriting the original entry — so the page shows the full history.
-    Email channel: pulls current parent address from Mongo, downloads the
-    existing rendered PDF from Supabase, and sends via SMTP.
-    WhatsApp channel: still mocked (logs a successful send row).
+    Pulls the current parent address from Mongo unless the caller passes a
+    `recipient_email` override (Logs page uses this for the recipient picker).
     """
     db = await get_db()
     try:
@@ -308,7 +311,11 @@ async def resend_delivery(log_id: str):
                 # rendered bytes via email even if Supabase is having a moment.
                 logger.exception("Resend: re-upload failed (continuing with send)")
 
-            to_email = await wise_service.get_student_email(student_id)
+            on_record_email = await wise_service.get_student_email(student_id)
+            teacher_recipient = (body.recipient_email if body else None) or None
+            teacher_recipient = (teacher_recipient or "").strip() or None
+            to_email = teacher_recipient or on_record_email
+
             pretty_month = pdf_service._pretty_month(reporting_month)
             safe_name = (student_name or "Student").replace(" ", "_").replace("/", "_")
             safe_month = pretty_month.replace(" ", "_") or "Report"
@@ -329,23 +336,13 @@ async def resend_delivery(log_id: str):
                 "INSERT INTO ptm_delivery_log "
                 "(id, report_id, channel, status, sent_at, error_msg, recipient, intended_recipient) "
                 "VALUES (?, ?, 'email', ?, ?, ?, ?, ?)",
-                [new_id, report_id, status, ts, error, to_email, to_email],
+                [new_id, report_id, status, ts, error, to_email, on_record_email],
             )
             await db.commit()
             return {
                 "id": new_id, "channel": "email", "status": status,
                 "error": error, "recipient": to_email,
             }
-
-        if channel == "whatsapp":
-            await db.execute(
-                "INSERT INTO ptm_delivery_log "
-                "(id, report_id, channel, status, sent_at, error_msg) "
-                "VALUES (?, ?, 'whatsapp', 'sent', ?, NULL)",
-                [new_id, report_id, ts],
-            )
-            await db.commit()
-            return {"id": new_id, "channel": "whatsapp", "status": "sent", "error": None}
 
         raise HTTPException(status_code=400, detail=f"Unsupported channel: {channel}")
     finally:
@@ -857,16 +854,21 @@ async def approve_report(report_id: str, body: ApproveBody, background_tasks: Ba
             [str(uuid.uuid4()), report_id, approved_version,
              json.dumps(report["draft_content"]), body.teacher_note, ts],
         )
-        # Mock delivery log entries
-        # email starts 'pending' — pdf_service updates it to sent/failed/skipped
-        # once the background send finishes. whatsapp is still mocked.
-        for channel, initial_status in (("email", "pending"), ("whatsapp", "sent")):
-            await db.execute(
-                "INSERT INTO ptm_delivery_log (id, report_id, channel, status, sent_at) VALUES (?, ?, ?, ?, ?)",
-                [str(uuid.uuid4()), report_id, channel, initial_status, ts],
-            )
-        await db.commit()
+        # Resolve the email recipients up-front so the delivery log row is
+        # immediately useful in the UI (no more "no recipient" while the PDF
+        # render is still in flight). recipient = where the email actually
+        # goes (teacher's custom address overrides the on-record one);
+        # intended_recipient = the Wise on-record email regardless of override.
         recipient_override = (body.recipient_email or "").strip() or None
+        on_record_email = await wise_service.get_student_email(report["student_id"])
+        recipient = recipient_override or on_record_email
+        await db.execute(
+            "INSERT INTO ptm_delivery_log "
+            "(id, report_id, channel, status, sent_at, recipient, intended_recipient) "
+            "VALUES (?, ?, 'email', 'pending', ?, ?, ?)",
+            [str(uuid.uuid4()), report_id, ts, recipient, on_record_email],
+        )
+        await db.commit()
         background_tasks.add_task(
             pdf_service.generate_and_store_pdf,
             report_id,
@@ -874,7 +876,7 @@ async def approve_report(report_id: str, body: ApproveBody, background_tasks: Ba
             True,
             recipient_override,
         )
-        return {"status": "approved", "delivered_via": ["email", "whatsapp"]}
+        return {"status": "approved", "delivered_via": ["email"]}
     finally:
         await db.close()
 
@@ -1174,18 +1176,20 @@ async def override_escalated(report_id: str, background_tasks: BackgroundTasks):
             [str(uuid.uuid4()), report_id, approved_version,
              json.dumps(report["draft_content"]), ts],
         )
-        # email starts 'pending' — pdf_service updates it to sent/failed/skipped
-        # once the background send finishes. whatsapp is still mocked.
-        for channel, initial_status in (("email", "pending"), ("whatsapp", "sent")):
-            await db.execute(
-                "INSERT INTO ptm_delivery_log (id, report_id, channel, status, sent_at) VALUES (?, ?, ?, ?, ?)",
-                [str(uuid.uuid4()), report_id, channel, initial_status, ts],
-            )
+        # Pre-populate the email log row with the on-record recipient so the
+        # Logs UI is immediately useful while the PDF render runs in the bg.
+        on_record_email = await wise_service.get_student_email(report["student_id"])
+        await db.execute(
+            "INSERT INTO ptm_delivery_log "
+            "(id, report_id, channel, status, sent_at, recipient, intended_recipient) "
+            "VALUES (?, ?, 'email', 'pending', ?, ?, ?)",
+            [str(uuid.uuid4()), report_id, ts, on_record_email, on_record_email],
+        )
         await db.commit()
         background_tasks.add_task(
             pdf_service.generate_and_store_pdf, report_id, approved_version, True
         )
-        return {"status": "approved", "delivered_via": ["email", "whatsapp"]}
+        return {"status": "approved", "delivered_via": ["email"]}
     finally:
         await db.close()
 
@@ -1615,6 +1619,8 @@ async def list_student_concepts(student_id: str, subject: str | None = None):
 
 
 async def _saved_knowledge_for(student_id: str) -> dict | None:
+    from services.knowledge_service import _clean as _knowledge_clean
+
     db = await get_db()
     try:
         async with db.execute(
@@ -1635,9 +1641,34 @@ async def _saved_knowledge_for(student_id: str) -> dict | None:
                 payload = {}
         if not isinstance(payload, dict):
             return None
+
+        # Resolve identity: payload → row column → latest PTM report. Each
+        # candidate is scrubbed against the placeholder set ("(unknown)",
+        # "unknown", "", …) so older rows that baked in literal placeholders
+        # self-heal without a migration.
+        student_name = (
+            _knowledge_clean(payload.get("student_name"))
+            or _knowledge_clean(d.get("student_name"))
+        )
+        subject = (
+            _knowledge_clean(payload.get("subject"))
+            or _knowledge_clean(d.get("subject"))
+        )
+        if not student_name or not subject:
+            async with db.execute(
+                """SELECT student_name, subject FROM ptm_reports
+                   WHERE student_id = ? AND deleted_at IS NULL
+                   ORDER BY reporting_month DESC, created_at DESC LIMIT 1""",
+                [student_id],
+            ) as cur:
+                latest = await cur.fetchone()
+            if latest:
+                student_name = student_name or _knowledge_clean(latest[0])
+                subject = subject or _knowledge_clean(latest[1])
+
         payload["student_id"] = d["student_id"]
-        payload["student_name"] = payload.get("student_name") or d.get("student_name")
-        payload["subject"] = payload.get("subject") or d.get("subject")
+        payload["student_name"] = student_name
+        payload["subject"] = subject
         payload["ai_generated"] = True
         payload["generation_count"] = d.get("generation_count") or 1
         gen_at = d.get("generated_at")
