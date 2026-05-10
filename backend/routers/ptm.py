@@ -83,6 +83,7 @@ def build_questions(inferred_fields: list[str], draft: dict) -> list[dict]:
 
 class ApproveBody(BaseModel):
     teacher_note: str | None = None
+    recipient_email: str | None = None
 
 
 class PatchDraftBody(BaseModel):
@@ -777,6 +778,24 @@ async def get_report(report_id: str):
         await db.close()
 
 
+@router.get("/reports/{report_id}/parent-email")
+async def get_report_parent_email(report_id: str):
+    db = await get_db()
+    try:
+        async with db.execute(
+            "SELECT student_id FROM ptm_reports WHERE id = ? AND deleted_at IS NULL",
+            [report_id],
+        ) as cur:
+            row = await cur.fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Report not found")
+        student_id = row[0]
+    finally:
+        await db.close()
+    parent_email = await wise_service.get_student_email(student_id)
+    return {"parent_email": parent_email}
+
+
 @router.patch("/reports/{report_id}")
 async def patch_report(report_id: str, body: PatchDraftBody, background_tasks: BackgroundTasks):
     db = await get_db()
@@ -852,8 +871,13 @@ async def approve_report(report_id: str, body: ApproveBody, background_tasks: Ba
                 [str(uuid.uuid4()), report_id, channel, initial_status, ts],
             )
         await db.commit()
+        recipient_override = (body.recipient_email or "").strip() or None
         background_tasks.add_task(
-            pdf_service.generate_and_store_pdf, report_id, approved_version, True
+            pdf_service.generate_and_store_pdf,
+            report_id,
+            approved_version,
+            True,
+            recipient_override,
         )
         return {"status": "approved", "delivered_via": ["email", "whatsapp"]}
     finally:
@@ -1817,3 +1841,60 @@ async def knowledge_summary(student_id: str):
 
 def _topic_stem(text: str) -> str:
     return " ".join(w.lower() for w in text.split() if len(w) > 3)[:50]
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# TEMPORARY diagnostic — verify which ELEVENLABS_API_KEY the running process
+# has loaded and test it against the upstream API. Remove once Render is fixed.
+# Returns NO secret values — only length, first 4 / last 4 chars, and upstream
+# HTTP status.
+# ─────────────────────────────────────────────────────────────────────────────
+@router.get("/_diag/elevenlabs")
+async def diag_elevenlabs():
+    import httpx
+
+    raw = os.getenv("ELEVENLABS_API_KEY", "")
+    stripped = raw.strip()
+    voice = (os.getenv("ELEVENLABS_VOICE_ID") or "onwK4e9ZLuTAKqWW03F9").strip()
+    model = (os.getenv("ELEVENLABS_MODEL_ID") or "eleven_multilingual_v2").strip()
+
+    fingerprint = {
+        "key_present": bool(stripped),
+        "key_len_raw": len(raw),
+        "key_len_stripped": len(stripped),
+        "had_surrounding_whitespace": raw != stripped,
+        "key_prefix": stripped[:4] if stripped else None,
+        "key_suffix": stripped[-4:] if len(stripped) >= 4 else None,
+        "starts_with_sk_": stripped.startswith("sk_"),
+        "voice_id": voice,
+        "model_id": model,
+        "tts_provider_env": os.getenv("TTS_PROVIDER"),
+    }
+
+    upstream = {"tested": False}
+    if stripped:
+        try:
+            async with httpx.AsyncClient(timeout=20.0) as client:
+                resp = await client.post(
+                    f"https://api.elevenlabs.io/v1/text-to-speech/{voice}",
+                    headers={
+                        "xi-api-key": stripped,
+                        "accept": "audio/mpeg",
+                        "content-type": "application/json",
+                    },
+                    json={"text": "diag", "model_id": model},
+                )
+            upstream = {
+                "tested": True,
+                "http_status": resp.status_code,
+                "content_type": resp.headers.get("content-type"),
+                "body_excerpt": (
+                    None
+                    if resp.headers.get("content-type", "").startswith("audio/")
+                    else resp.text[:300]
+                ),
+            }
+        except Exception as e:
+            upstream = {"tested": True, "error": f"{type(e).__name__}: {e}"}
+
+    return {"key_fingerprint": fingerprint, "upstream": upstream}

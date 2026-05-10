@@ -219,12 +219,20 @@ export const api = {
 
     approve(
       id: string,
-      teacher_note?: string
+      teacher_note?: string,
+      recipient_email?: string,
     ): Promise<{ status: string; delivered_via: string[] }> {
       return apiFetch(`/api/ptm/reports/${id}/approve`, {
         method: "POST",
-        body: JSON.stringify({ teacher_note: teacher_note ?? null }),
+        body: JSON.stringify({
+          teacher_note: teacher_note ?? null,
+          recipient_email: recipient_email ?? null,
+        }),
       });
+    },
+
+    parentEmail(id: string): Promise<{ parent_email: string | null }> {
+      return apiFetch(`/api/ptm/reports/${id}/parent-email`);
     },
 
     reject(id: string): Promise<{ status: string; questions: QuestionnaireQuestion[] }> {

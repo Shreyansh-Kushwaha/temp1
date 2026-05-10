@@ -7,6 +7,8 @@ import Navbar from "@/app/components/Navbar";
 import StatusBadge from "@/app/components/StatusBadge";
 import StudentsAtRiskSection from "@/app/components/StudentsAtRiskSection";
 import ConfidenceBadge from "@/app/components/ConfidenceBadge";
+import ApproveModal from "@/app/components/ApproveModal";
+import { useToast } from "@/app/components/ToastProvider";
 import { type PTMReport, type ReportStatus } from "@/app/lib/mock-data";
 import { api } from "@/app/lib/api";
 import { getAuth } from "@/app/lib/auth";
@@ -45,13 +47,14 @@ export default function PendingPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<FilterTab>("all");
-  const [approvingId, setApprovingId] = useState<string | null>(null);
+  const [approveTarget, setApproveTarget] = useState<PTMReport | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [teachers, setTeachers] = useState<string[]>([]);
   const [selectedTeacher, setSelectedTeacher] = useState<string>("");
   const [isAdminUser, setIsAdminUser] = useState(false);
   const [scopedTeacher, setScopedTeacher] = useState<string | null>(null);
+  const toast = useToast();
 
   useEffect(() => {
     const auth = getAuth();
@@ -91,16 +94,16 @@ export default function PendingPage() {
   const pendingStale = reports.filter((r) => r.status === "pending" && isStale(r.created_at));
   const filtered = activeTab === "all" ? reports : reports.filter((r) => r.status === activeTab);
 
-  async function quickApprove(id: string) {
-    setApprovingId(id);
-    try {
-      await api.reports.approve(id);
-      setReports((prev) => prev.map((r) => r.id === id ? { ...r, status: "approved" as ReportStatus } : r));
-    } catch {
-      // ignore transient errors
-    } finally {
-      setApprovingId(null);
-    }
+  function openApprove(report: PTMReport) {
+    setApproveTarget(report);
+  }
+
+  function handleApproved(reportId: string, info: { recipient: string }) {
+    setReports((prev) =>
+      prev.map((r) => (r.id === reportId ? { ...r, status: "approved" as ReportStatus } : r)),
+    );
+    setApproveTarget(null);
+    toast.success(`Report approved — sending to ${info.recipient}.`);
   }
 
   async function deleteReport(id: string) {
@@ -119,6 +122,16 @@ export default function PendingPage() {
   return (
     <div className="min-h-screen" style={{ background: "var(--ss-bg)" }}>
       <Navbar />
+
+      {approveTarget && (
+        <ApproveModal
+          reportId={approveTarget.id}
+          studentName={approveTarget.student_name}
+          open={true}
+          onClose={() => setApproveTarget(null)}
+          onApproved={(info) => handleApproved(approveTarget.id, info)}
+        />
+      )}
 
       <main className="max-w-6xl mx-auto px-4 py-6 md:px-8 md:py-8">
         <div className="mb-6 md:mb-8">
@@ -316,15 +329,10 @@ export default function PendingPage() {
                       <div className="flex items-center gap-2 mt-2 flex-wrap">
                         {report.status === "pending" && (
                           <button
-                            onClick={() => quickApprove(report.id)}
-                            disabled={approvingId === report.id}
-                            className="flex items-center gap-1 px-3 py-2 rounded-full bg-green-50 text-green-700 border border-green-200 text-xs font-semibold hover:bg-green-100 disabled:opacity-50 transition-colors min-h-[40px]"
+                            onClick={() => openApprove(report)}
+                            className="flex items-center gap-1 px-3 py-2 rounded-full bg-green-50 text-green-700 border border-green-200 text-xs font-semibold hover:bg-green-100 transition-colors min-h-[40px]"
                           >
-                            {approvingId === report.id ? (
-                              <span className="w-3 h-3 rounded-full border-2 border-green-300 border-t-green-700 animate-spin" />
-                            ) : (
-                              <Check size={12} />
-                            )}
+                            <Check size={12} />
                             Approve
                           </button>
                         )}
@@ -418,15 +426,10 @@ export default function PendingPage() {
                         <div className="flex items-center gap-2 justify-end">
                           {report.status === "pending" && (
                             <button
-                              onClick={() => quickApprove(report.id)}
-                              disabled={approvingId === report.id}
-                              className="flex items-center gap-1 px-3 py-1.5 rounded-full bg-green-50 text-green-700 border border-green-200 text-xs font-semibold hover:bg-green-100 disabled:opacity-50 transition-colors"
+                              onClick={() => openApprove(report)}
+                              className="flex items-center gap-1 px-3 py-1.5 rounded-full bg-green-50 text-green-700 border border-green-200 text-xs font-semibold hover:bg-green-100 transition-colors"
                             >
-                              {approvingId === report.id ? (
-                                <span className="w-3 h-3 rounded-full border-2 border-green-300 border-t-green-700 animate-spin" />
-                              ) : (
-                                <Check size={11} />
-                              )}
+                              <Check size={11} />
                               Approve
                             </button>
                           )}

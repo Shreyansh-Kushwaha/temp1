@@ -126,6 +126,7 @@ async def generate_and_store_pdf(
     report_id: str,
     version_number: int,
     send_email: bool = False,
+    recipient_email_override: str | None = None,
 ) -> str | None:
     """Render the report's print page, upload to Supabase, persist the URL on
     `ptm_reports.pdf_url` and `ptm_report_versions.pdf_url`. Returns the URL on
@@ -168,14 +169,18 @@ async def generate_and_store_pdf(
 
     if send_email:
         try:
-            await _email_approved_report(report_id, pdf_bytes)
+            await _email_approved_report(report_id, pdf_bytes, recipient_email_override)
         except Exception:
             logger.exception("Email step failed: report=%s", report_id)
 
     return public_url
 
 
-async def _email_approved_report(report_id: str, pdf_bytes: bytes) -> None:
+async def _email_approved_report(
+    report_id: str,
+    pdf_bytes: bytes,
+    recipient_email_override: str | None = None,
+) -> None:
     """Look up the recipient + send the email + record the outcome.
 
     Updates the existing email-channel ptm_delivery_log row (created by
@@ -206,7 +211,15 @@ async def _email_approved_report(report_id: str, pdf_bytes: bytes) -> None:
         )
         return
 
-    to_email = await wise_service.get_student_email(student_id)
+    override_recipient = (recipient_email_override or "").strip() or None
+    if override_recipient:
+        to_email = override_recipient
+        logger.info(
+            "Email recipient overridden by teacher: report=%s recipient=%s",
+            report_id, override_recipient,
+        )
+    else:
+        to_email = await wise_service.get_student_email(student_id)
     pretty_month = _pretty_month(reporting_month)
     safe_name = (student_name or "Student").replace(" ", "_").replace("/", "_")
     safe_month = pretty_month.replace(" ", "_") or "Report"

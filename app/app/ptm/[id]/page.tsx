@@ -4,7 +4,7 @@ import { use, useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
-  ArrowLeft, Info, Check, MessageSquare, X, Send, BookOpen,
+  ArrowLeft, Info, Check, MessageSquare, X, BookOpen,
   TrendingUp, ArrowRight, Pencil, RotateCcw, CheckCircle2, Printer, AlertCircle, RefreshCw,
   Star, Target, Lightbulb, Heart, Users, ChevronUp, Edit3, Save, XCircle,
 } from "lucide-react";
@@ -18,6 +18,7 @@ import ActionPlanCard from "@/app/components/ActionPlanCard";
 import ToneSelector from "@/app/components/ToneSelector";
 import DetailLevelSelector from "@/app/components/DetailLevelSelector";
 import AudioSummaryCard from "@/app/components/AudioSummaryCard";
+import ApproveModal from "@/app/components/ApproveModal";
 import PdfSectionsPanel from "./PdfSectionsPanel";
 import {
   type PTMReport,
@@ -57,8 +58,6 @@ export default function ReportPreviewPage({ params }: { params: Promise<{ id: st
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showModal, setShowModal] = useState(false);
-  const [teacherNote, setTeacherNote] = useState("");
-  const [delivering, setDelivering] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [localStatus, setLocalStatus] = useState<string | null>(null);
   const globalToast = useToast();
@@ -169,20 +168,11 @@ export default function ReportPreviewPage({ params }: { params: Promise<{ id: st
     });
   }
 
-  async function handleApprove() {
-    setDelivering(true);
-    try {
-      await api.reports.approve(id, teacherNote || undefined);
-      setLocalStatus("approved");
-      setShowModal(false);
-      setToast("Report approved and delivered to parents via email and WhatsApp.");
-      setTimeout(() => { setToast(null); router.push("/ptm"); }, 2500);
-    } catch (e) {
-      setToast(e instanceof Error ? e.message : "Failed to approve report");
-      setTimeout(() => setToast(null), 3000);
-    } finally {
-      setDelivering(false);
-    }
+  function handleApproved(info: { recipient: string }) {
+    setLocalStatus("approved");
+    setShowModal(false);
+    setToast(`Report approved — sending to ${info.recipient}.`);
+    setTimeout(() => { setToast(null); router.push("/ptm"); }, 2500);
   }
 
   // ── Loading skeleton ──
@@ -264,46 +254,13 @@ export default function ReportPreviewPage({ params }: { params: Promise<{ id: st
       )}
 
       {/* Approve modal */}
-      {showModal && (
-        <div className="fixed inset-0 z-40 flex items-end sm:items-center justify-center p-4">
-          <div className="absolute inset-0 bg-[var(--ss-i-900)]/40 backdrop-blur-sm" onClick={() => setShowModal(false)} />
-          <div className="relative w-full max-w-md bg-white rounded-2xl shadow-[var(--ss-shadow-lg)] p-6">
-            <button onClick={() => setShowModal(false)} className="absolute top-4 right-4 p-1 rounded-full hover:bg-[var(--ss-i-100)] transition-colors">
-              <X size={17} className="text-[var(--ss-i-400)]" />
-            </button>
-            <h2 className="text-lg font-bold text-[var(--ss-i-900)] mb-1" style={{ fontFamily: "var(--font-jakarta)" }}>
-              Approve Report
-            </h2>
-            <p className="text-sm text-[var(--ss-i-400)] mb-5">
-              Add an optional personal note for {d.header.student_name.split(" ")[0]}&apos;s parents before sending.
-            </p>
-            <textarea
-              value={teacherNote}
-              onChange={(e) => setTeacherNote(e.target.value)}
-              placeholder={`e.g. "${d.header.student_name.split(" ")[0]} has been putting in great effort — proud of the progress!"`}
-              rows={3}
-              className="w-full px-4 py-3 rounded-xl border border-[var(--ss-i-200)] bg-white text-sm text-[var(--ss-i-700)] placeholder:text-[var(--ss-i-300)] focus:outline-none focus:ring-2 focus:ring-[var(--ss-o-300)] focus:border-[var(--ss-o-400)] resize-none transition mb-5"
-            />
-            <div className="flex items-center gap-3">
-              <button
-                onClick={handleApprove}
-                disabled={delivering}
-                className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-full bg-[var(--ss-o-500)] text-white text-sm font-semibold hover:bg-[var(--ss-o-600)] disabled:opacity-60 transition-all shadow-[var(--ss-shadow-brand)]"
-                style={{ fontFamily: "var(--font-jakarta)" }}
-              >
-                {delivering ? (
-                  <><span className="w-4 h-4 rounded-full border-2 border-white/30 border-t-white animate-spin" />Sending…</>
-                ) : (
-                  <><Send size={14} />Send Report</>
-                )}
-              </button>
-              <button onClick={() => setShowModal(false)} className="px-4 py-2.5 text-sm text-[var(--ss-i-500)] hover:text-[var(--ss-i-700)] font-medium">
-                Cancel
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <ApproveModal
+        reportId={id}
+        studentName={report.draft_content.header.student_name}
+        open={showModal}
+        onClose={() => setShowModal(false)}
+        onApproved={handleApproved}
+      />
 
       <main className="max-w-6xl mx-auto px-4 py-6 md:px-8 md:py-8">
         <Link href="/ptm" className="inline-flex items-center gap-1.5 text-sm text-[var(--ss-i-400)] hover:text-[var(--ss-i-700)] transition-colors mb-6">
