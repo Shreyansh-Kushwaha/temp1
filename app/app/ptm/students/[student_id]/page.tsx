@@ -406,9 +406,9 @@ export default function StudentSessionPage({ params }: { params: Promise<PagePar
           </div>
         </Section>
 
-        {/* ── Generate / Open existing button ─────────────────────────────────── */}
-        <div className="sticky bottom-6 mt-8">
-          {existingReport ? (
+        {/* ── Generate / Open existing buttons ────────────────────────────────── */}
+        <div className="sticky bottom-6 mt-8 space-y-2">
+          {existingReport && (
             <button
               onClick={() => router.push(`/ptm/${existingReport.id}`)}
               className="w-full flex items-center justify-center gap-2.5 py-4 rounded-2xl bg-[var(--ss-i-900)] text-white font-bold text-base shadow-[0_8px_24px_rgba(15,17,21,.18)] hover:bg-black transition-all"
@@ -422,31 +422,39 @@ export default function StudentSessionPage({ params }: { params: Promise<PagePar
               </span>
               <ChevronRight size={16} />
             </button>
-          ) : (
-            <button
-              onClick={handleGenerate}
-              disabled={selectedIds.size === 0}
-              className="w-full flex items-center justify-center gap-2.5 py-4 rounded-2xl bg-[var(--ss-o-500)] text-white font-bold text-base shadow-[var(--ss-shadow-brand)] hover:bg-[var(--ss-o-600)] disabled:opacity-50 disabled:cursor-not-allowed transition-all"
-              style={{ fontFamily: "var(--font-jakarta)" }}
-            >
-              {justStarted ? (
-                <>
-                  <CheckSquare size={18} />
-                  Started — see toast
-                </>
-              ) : (
-                <>
-                  <Sparkles size={18} />
-                  Generate Report
-                  {selectedIds.size > 0 && (
-                    <span className="ml-1 text-white/70 font-normal text-sm">
-                      from {selectedIds.size} session{selectedIds.size !== 1 ? "s" : ""}
-                    </span>
-                  )}
-                  <ChevronRight size={16} />
-                </>
-              )}
-            </button>
+          )}
+
+          <button
+            onClick={handleGenerate}
+            disabled={selectedIds.size === 0}
+            className="w-full flex items-center justify-center gap-2.5 py-4 rounded-2xl bg-[var(--ss-o-500)] text-white font-bold text-base shadow-[var(--ss-shadow-brand)] hover:bg-[var(--ss-o-600)] disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+            style={{ fontFamily: "var(--font-jakarta)" }}
+          >
+            {justStarted ? (
+              <>
+                <CheckSquare size={18} />
+                Started — see toast
+              </>
+            ) : (
+              <>
+                <Sparkles size={18} />
+                {existingReport ? "Generate new report" : "Generate Report"}
+                {selectedIds.size > 0 && (
+                  <span className="ml-1 text-white/70 font-normal text-sm">
+                    from {selectedIds.size} session{selectedIds.size !== 1 ? "s" : ""}
+                  </span>
+                )}
+                <ChevronRight size={16} />
+              </>
+            )}
+          </button>
+
+          {existingReport && (
+            <p className="text-[11px] text-[var(--ss-i-400)] text-center px-3">
+              An active report for this month already exists. To generate a fresh one,
+              delete the existing report first — otherwise the new generation will fail
+              and offer to open the existing one.
+            </p>
           )}
 
           {selectedIds.size === 0 && (
