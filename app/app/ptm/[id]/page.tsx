@@ -305,7 +305,7 @@ export default function ReportPreviewPage({ params }: { params: Promise<{ id: st
         </div>
       )}
 
-      <main className="max-w-6xl mx-auto px-4 md:px-8 py-8">
+      <main className="max-w-6xl mx-auto px-4 py-6 md:px-8 md:py-8">
         <Link href="/ptm" className="inline-flex items-center gap-1.5 text-sm text-[var(--ss-i-400)] hover:text-[var(--ss-i-700)] transition-colors mb-6">
           <ArrowLeft size={14} />
           All Reports
@@ -313,12 +313,12 @@ export default function ReportPreviewPage({ params }: { params: Promise<{ id: st
 
         {/* ── Editing banner ── */}
         {isEditing && (
-          <div className="mb-6 flex items-center justify-between gap-4 bg-[var(--ss-o-50)] border border-[var(--ss-o-200)] rounded-2xl px-5 py-3.5">
-            <div className="flex items-center gap-2.5">
-              <Edit3 size={15} className="text-[var(--ss-o-500)]" />
+          <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4 bg-[var(--ss-o-50)] border border-[var(--ss-o-200)] rounded-2xl px-4 py-3 sm:px-5 sm:py-3.5">
+            <div className="flex items-start sm:items-center gap-2.5">
+              <Edit3 size={15} className="text-[var(--ss-o-500)] shrink-0 mt-0.5 sm:mt-0" />
               <span className="text-sm font-semibold text-[var(--ss-o-700)]">Editing mode — changes are local until you save</span>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 self-end sm:self-auto">
               <button
                 onClick={cancelEditing}
                 className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-semibold border border-[var(--ss-i-200)] text-[var(--ss-i-600)] hover:bg-[var(--ss-i-100)] transition-colors"

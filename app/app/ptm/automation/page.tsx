@@ -84,7 +84,7 @@ export default function AutomationPage() {
   return (
     <div className="min-h-screen" style={{ background: "var(--ss-bg)" }}>
       <Navbar />
-      <main className="max-w-4xl mx-auto px-4 md:px-8 py-8 space-y-6">
+      <main className="max-w-4xl mx-auto px-4 py-6 md:px-8 md:py-8 space-y-6">
         {/* Header */}
         <div className="bg-white rounded-2xl border border-[var(--ss-i-200)] shadow-[var(--ss-shadow)] p-6 md:p-7">
           <div className="flex items-start gap-4">
@@ -92,7 +92,7 @@ export default function AutomationPage() {
               <Bot size={20} className="text-[var(--ss-o-600)]" />
             </div>
             <div className="flex-1 min-w-0">
-              <h1 className="text-2xl font-extrabold text-[var(--ss-i-900)]" style={{ fontFamily: "var(--font-jakarta)" }}>
+              <h1 className="text-xl md:text-2xl font-extrabold text-[var(--ss-i-900)]" style={{ fontFamily: "var(--font-jakarta)" }}>
                 Report Automation
               </h1>
               <p className="text-sm text-[var(--ss-i-500)] mt-1 leading-relaxed">
@@ -166,7 +166,7 @@ export default function AutomationPage() {
 
         {/* Teacher list */}
         <div className="bg-white rounded-2xl border border-[var(--ss-i-200)] shadow-[var(--ss-shadow)] p-5 md:p-6">
-          <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+          <div className="flex flex-col sm:flex-row sm:flex-wrap sm:items-center sm:justify-between gap-3 mb-4">
             <h2 className="text-sm font-bold text-[var(--ss-i-900)]" style={{ fontFamily: "var(--font-jakarta)" }}>
               Teachers
             </h2>
@@ -175,7 +175,7 @@ export default function AutomationPage() {
               placeholder="Search teachers…"
               value={filter}
               onChange={(e) => setFilter(e.target.value)}
-              className="px-3 py-1.5 rounded-full border border-[var(--ss-i-200)] text-xs text-[var(--ss-i-700)] placeholder:text-[var(--ss-i-400)] focus:outline-none focus:ring-2 focus:ring-[var(--ss-o-300)]"
+              className="w-full sm:w-auto px-3 py-2 sm:py-1.5 rounded-full border border-[var(--ss-i-200)] text-xs text-[var(--ss-i-700)] placeholder:text-[var(--ss-i-400)] focus:outline-none focus:ring-2 focus:ring-[var(--ss-o-300)] min-h-[40px] sm:min-h-0"
             />
           </div>
 

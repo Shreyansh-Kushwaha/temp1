@@ -75,11 +75,11 @@ export default function GeneratePage() {
     <div className="min-h-screen" style={{ background: "var(--ss-bg)" }}>
       <Navbar />
 
-      <main className="max-w-6xl mx-auto px-4 md:px-8 py-8">
+      <main className="max-w-6xl mx-auto px-4 py-6 md:px-8 md:py-8">
         {/* Header */}
-        <div className="mb-8">
+        <div className="mb-6 md:mb-8">
           <h1
-            className="text-3xl font-extrabold text-[var(--ss-i-900)]"
+            className="text-2xl md:text-3xl font-extrabold text-[var(--ss-i-900)]"
             style={{ fontFamily: "var(--font-jakarta)" }}
           >
             Generate Report
@@ -91,8 +91,8 @@ export default function GeneratePage() {
 
         {/* Controls — admin can pick any teacher; teachers are auto-scoped */}
         {isAdminUser ? (
-          <div className="mb-8">
-            <div className="max-w-xs">
+          <div className="mb-6 md:mb-8">
+            <div className="w-full sm:max-w-xs">
               <label className="block text-xs font-semibold text-[var(--ss-i-500)] uppercase tracking-wide mb-1.5">
                 Teacher
               </label>
@@ -149,7 +149,7 @@ export default function GeneratePage() {
           <>
             {/* Search */}
             {!loadingStudents && students.length > 0 && (
-              <div className="relative mb-5 max-w-sm">
+              <div className="relative mb-5 w-full sm:max-w-sm">
                 <Search size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[var(--ss-i-300)]" />
                 <input
                   value={search}

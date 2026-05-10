@@ -66,10 +66,10 @@ export default function EscalatedPage() {
         </div>
       )}
 
-      <main className="max-w-4xl mx-auto px-4 md:px-8 py-8">
-        <div className="mb-8">
+      <main className="max-w-4xl mx-auto px-4 py-6 md:px-8 md:py-8">
+        <div className="mb-6 md:mb-8">
           <p className="text-xs font-bold uppercase tracking-widest text-[var(--ss-error)] mb-1.5">Escalated</p>
-          <h1 className="text-3xl font-extrabold text-[var(--ss-i-900)]" style={{ fontFamily: "var(--font-jakarta)" }}>
+          <h1 className="text-2xl md:text-3xl font-extrabold text-[var(--ss-i-900)]" style={{ fontFamily: "var(--font-jakarta)" }}>
             Needs your attention
           </h1>
           <p className="mt-1.5 text-sm text-[var(--ss-i-400)] max-w-lg">
@@ -135,7 +135,7 @@ function EscalatedCard({ report, overriding, onOverride }: { report: PTMReport; 
     <div className="bg-white rounded-2xl shadow-[var(--ss-shadow)] overflow-hidden border border-[var(--ss-i-200)]">
       <div className="flex">
         <div className="w-1 shrink-0 bg-[var(--ss-error)]" />
-        <div className="flex-1 p-6 md:p-7">
+        <div className="flex-1 p-4 sm:p-6 md:p-7">
           <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4 mb-5">
             <div>
               <div className="flex items-center gap-2 mb-2">
@@ -149,12 +149,12 @@ function EscalatedCard({ report, overriding, onOverride }: { report: PTMReport; 
               <h2 className="text-xl font-extrabold text-[var(--ss-i-900)] mb-1" style={{ fontFamily: "var(--font-jakarta)" }}>{report.student_name}</h2>
               <p className="text-sm text-[var(--ss-i-500)]">{report.subject} · {report.draft_content.header.teacher_name} · {formatMonth(report.reporting_month)}</p>
             </div>
-            <div className="flex items-center gap-2 shrink-0">
-              <button className="flex items-center gap-1.5 px-4 py-2 rounded-full border border-[var(--ss-i-200)] text-sm text-[var(--ss-i-600)] font-semibold hover:bg-[var(--ss-i-100)] hover:border-[var(--ss-i-300)] transition-colors">
+            <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:shrink-0">
+              <button className="flex items-center justify-center gap-1.5 px-4 py-2.5 sm:py-2 rounded-full border border-[var(--ss-i-200)] text-sm text-[var(--ss-i-600)] font-semibold hover:bg-[var(--ss-i-100)] hover:border-[var(--ss-i-300)] transition-colors min-h-[44px] sm:min-h-0">
                 <UserX size={13} />Reassign
               </button>
               <button onClick={onOverride} disabled={overriding}
-                className="flex items-center gap-1.5 px-4 py-2 rounded-full bg-[var(--ss-o-500)] text-white text-sm font-semibold hover:bg-[var(--ss-o-600)] disabled:opacity-60 transition-all shadow-[var(--ss-shadow-brand)]"
+                className="flex items-center justify-center gap-1.5 px-4 py-2.5 sm:py-2 rounded-full bg-[var(--ss-o-500)] text-white text-sm font-semibold hover:bg-[var(--ss-o-600)] disabled:opacity-60 transition-all shadow-[var(--ss-shadow-brand)] min-h-[44px] sm:min-h-0"
                 style={{ fontFamily: "var(--font-jakarta)" }}
               >
                 {overriding ? (

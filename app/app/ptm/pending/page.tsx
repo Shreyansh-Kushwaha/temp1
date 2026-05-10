@@ -120,13 +120,13 @@ export default function PendingPage() {
     <div className="min-h-screen" style={{ background: "var(--ss-bg)" }}>
       <Navbar />
 
-      <main className="max-w-6xl mx-auto px-4 md:px-8 py-8">
-        <div className="mb-8">
+      <main className="max-w-6xl mx-auto px-4 py-6 md:px-8 md:py-8">
+        <div className="mb-6 md:mb-8">
           <p className="text-xs font-semibold uppercase tracking-widest text-[var(--ss-o-600)] mb-1">
             {new Date().toLocaleDateString("en-IN", { month: "long", year: "numeric" })}
           </p>
           <h1
-            className="text-3xl font-extrabold text-[var(--ss-i-900)]"
+            className="text-2xl md:text-3xl font-extrabold text-[var(--ss-i-900)]"
             style={{ fontFamily: "var(--font-jakarta)" }}
           >
             Approval Queue
@@ -287,7 +287,89 @@ export default function PendingPage() {
             </div>
           ) : (
             <div className="bg-white rounded-2xl shadow-[var(--ss-shadow)] border border-[var(--ss-i-200)] overflow-hidden">
-              <table className="w-full text-sm">
+              {/* Mobile cards */}
+              <ul className="md:hidden divide-y divide-[var(--ss-i-100)]">
+                {filtered.map((report) => {
+                  const teacherName = report.draft_content?.header?.teacher_name ?? "—";
+                  const isConfirmingDelete = confirmDeleteId === report.id;
+                  const isDeleting = deletingId === report.id;
+                  return (
+                    <li key={report.id} className="px-4 py-3.5">
+                      <div className="flex items-start gap-3 mb-2">
+                        <div className="flex-1 min-w-0">
+                          <div className="font-semibold text-[var(--ss-i-900)] truncate">{report.student_name}</div>
+                          <div className="text-[12px] text-[var(--ss-i-500)] mt-0.5 flex items-center gap-2 flex-wrap">
+                            <span className="px-2 py-0.5 rounded-md bg-[var(--ss-i-100)] text-[var(--ss-i-600)] text-[11px] font-medium">
+                              {report.subject}
+                            </span>
+                            <span>{formatMonth(report.reporting_month)}</span>
+                          </div>
+                          <div className="text-[11px] text-[var(--ss-i-400)] mt-0.5 truncate">{teacherName} · {timeAgo(report.created_at)}</div>
+                        </div>
+                        <div className="shrink-0 flex flex-col items-end gap-1">
+                          <StatusBadge status={report.status} />
+                          {report.overall_confidence != null && (
+                            <ConfidenceBadge score={report.overall_confidence} size="sm" />
+                          )}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2 mt-2 flex-wrap">
+                        {report.status === "pending" && (
+                          <button
+                            onClick={() => quickApprove(report.id)}
+                            disabled={approvingId === report.id}
+                            className="flex items-center gap-1 px-3 py-2 rounded-full bg-green-50 text-green-700 border border-green-200 text-xs font-semibold hover:bg-green-100 disabled:opacity-50 transition-colors min-h-[40px]"
+                          >
+                            {approvingId === report.id ? (
+                              <span className="w-3 h-3 rounded-full border-2 border-green-300 border-t-green-700 animate-spin" />
+                            ) : (
+                              <Check size={12} />
+                            )}
+                            Approve
+                          </button>
+                        )}
+                        <Link
+                          href={`/ptm/${report.id}`}
+                          className="flex items-center gap-1 px-3 py-2 rounded-full bg-[var(--ss-i-100)] text-[var(--ss-i-700)] text-xs font-semibold hover:bg-[var(--ss-i-200)] transition-colors min-h-[40px]"
+                        >
+                          Preview
+                          <ChevronRight size={12} />
+                        </Link>
+                        {isConfirmingDelete ? (
+                          <>
+                            <button
+                              onClick={() => deleteReport(report.id)}
+                              disabled={isDeleting}
+                              className="flex items-center gap-1 px-3 py-2 rounded-full bg-red-600 text-white text-xs font-semibold hover:bg-red-700 disabled:opacity-50 transition-colors min-h-[40px]"
+                            >
+                              {isDeleting && <span className="w-3 h-3 rounded-full border-2 border-red-300 border-t-white animate-spin" />}
+                              Confirm
+                            </button>
+                            <button
+                              onClick={() => setConfirmDeleteId(null)}
+                              className="px-3 py-2 rounded-full text-xs text-[var(--ss-i-500)] hover:text-[var(--ss-i-700)] hover:bg-[var(--ss-i-100)] transition-colors min-h-[40px]"
+                            >
+                              Cancel
+                            </button>
+                          </>
+                        ) : (
+                          <button
+                            onClick={() => setConfirmDeleteId(report.id)}
+                            className="ml-auto p-2 rounded-full text-[var(--ss-i-400)] hover:text-red-600 hover:bg-red-50 transition-colors min-w-[40px] min-h-[40px]"
+                            title="Delete report"
+                            aria-label="Delete report"
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        )}
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+
+              {/* Desktop table — unchanged */}
+              <table className="hidden md:table w-full text-sm">
                 <thead>
                   <tr className="bg-[var(--ss-i-100)] border-b border-[var(--ss-i-200)]">
                     <th className="text-left py-3 px-5 font-semibold text-[var(--ss-i-500)] text-xs uppercase tracking-wide">Student</th>

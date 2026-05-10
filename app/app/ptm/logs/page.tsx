@@ -255,7 +255,7 @@ export default function LogsPage() {
       {/* Toast */}
       {toast && (
         <div
-          className={`fixed top-20 right-6 z-50 rounded-2xl border px-4 py-3 shadow-[var(--ss-shadow)] flex items-start gap-2.5 max-w-sm ${
+          className={`fixed top-20 left-4 right-4 md:left-auto md:right-6 z-50 rounded-2xl border px-4 py-3 shadow-[var(--ss-shadow)] flex items-start gap-2.5 md:max-w-sm ${
             toast.kind === "ok"
               ? "border-emerald-200 bg-emerald-50 text-emerald-900"
               : "border-rose-200 bg-rose-50 text-rose-900"
@@ -270,9 +270,9 @@ export default function LogsPage() {
         </div>
       )}
 
-      <main className="max-w-7xl mx-auto px-5 md:px-8 py-8">
+      <main className="max-w-7xl mx-auto px-4 py-6 md:px-8 md:py-8">
         {/* Header */}
-        <div className="flex items-start justify-between gap-4 mb-6">
+        <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between md:gap-4 mb-6">
           <div>
             <div className="flex items-center gap-2 text-[var(--ss-o-600)] text-xs font-semibold uppercase tracking-wide mb-1">
               <ScrollText size={14} />
@@ -292,7 +292,7 @@ export default function LogsPage() {
             type="button"
             onClick={() => fetchLogs()}
             disabled={refreshing}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium border border-[var(--ss-i-200)] bg-white text-[var(--ss-i-700)] hover:bg-[var(--ss-i-50)] transition-colors disabled:opacity-50"
+            className="self-start inline-flex items-center gap-1.5 px-4 py-2 md:px-3 md:py-1.5 rounded-full text-sm font-medium border border-[var(--ss-i-200)] bg-white text-[var(--ss-i-700)] hover:bg-[var(--ss-i-50)] transition-colors disabled:opacity-50 min-h-[40px] md:min-h-0"
           >
             <RefreshCw size={14} className={refreshing ? "animate-spin" : ""} />
             Refresh
@@ -346,13 +346,13 @@ export default function LogsPage() {
         </div>
 
         {/* Filters bar */}
-        <div className="flex flex-wrap items-center gap-2 mb-4">
-          <div className="flex items-center gap-1 bg-white rounded-full border border-[var(--ss-i-200)] p-1">
+        <div className="flex flex-col gap-2 md:flex-row md:flex-wrap md:items-center mb-4">
+          <div className="flex items-center gap-1 bg-white rounded-full border border-[var(--ss-i-200)] p-1 overflow-x-auto -mx-1 px-1 md:mx-0 md:px-1 [&::-webkit-scrollbar]:hidden">
             {STATUS_TABS.map((t) => (
               <button
                 key={t.key}
                 onClick={() => setStatusFilter(t.key)}
-                className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${
+                className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors whitespace-nowrap min-h-[36px] md:min-h-0 md:py-1 ${
                   statusFilter === t.key
                     ? "bg-[var(--ss-o-500)] text-white"
                     : "text-[var(--ss-i-600)] hover:text-[var(--ss-i-900)]"
@@ -363,31 +363,33 @@ export default function LogsPage() {
             ))}
           </div>
 
-          <select
-            value={channelFilter}
-            onChange={(e) => setChannelFilter(e.target.value as ChannelFilter)}
-            className="px-3 py-1.5 rounded-full border border-[var(--ss-i-200)] bg-white text-xs font-medium text-[var(--ss-i-700)]"
-          >
-            {CHANNEL_OPTIONS.map((c) => (
-              <option key={c.key} value={c.key}>
-                {c.label}
-              </option>
-            ))}
-          </select>
+          <div className="flex gap-2 md:contents">
+            <select
+              value={channelFilter}
+              onChange={(e) => setChannelFilter(e.target.value as ChannelFilter)}
+              className="flex-1 md:flex-none px-3 py-2 md:py-1.5 rounded-full border border-[var(--ss-i-200)] bg-white text-xs font-medium text-[var(--ss-i-700)] min-h-[40px] md:min-h-0"
+            >
+              {CHANNEL_OPTIONS.map((c) => (
+                <option key={c.key} value={c.key}>
+                  {c.label}
+                </option>
+              ))}
+            </select>
 
-          <select
-            value={rangeFilter}
-            onChange={(e) => setRangeFilter(e.target.value as RangeFilter)}
-            className="px-3 py-1.5 rounded-full border border-[var(--ss-i-200)] bg-white text-xs font-medium text-[var(--ss-i-700)]"
-          >
-            {RANGE_OPTIONS.map((r) => (
-              <option key={r.key} value={r.key}>
-                {r.label}
-              </option>
-            ))}
-          </select>
+            <select
+              value={rangeFilter}
+              onChange={(e) => setRangeFilter(e.target.value as RangeFilter)}
+              className="flex-1 md:flex-none px-3 py-2 md:py-1.5 rounded-full border border-[var(--ss-i-200)] bg-white text-xs font-medium text-[var(--ss-i-700)] min-h-[40px] md:min-h-0"
+            >
+              {RANGE_OPTIONS.map((r) => (
+                <option key={r.key} value={r.key}>
+                  {r.label}
+                </option>
+              ))}
+            </select>
+          </div>
 
-          <div className="flex-1 min-w-[200px] relative">
+          <div className="w-full md:flex-1 md:min-w-[200px] relative">
             <Search
               size={14}
               className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--ss-i-400)]"
@@ -396,8 +398,8 @@ export default function LogsPage() {
               type="text"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search by student name or recipient email…"
-              className="w-full pl-8 pr-3 py-1.5 rounded-full border border-[var(--ss-i-200)] bg-white text-xs text-[var(--ss-i-900)] placeholder-[var(--ss-i-400)] focus:outline-none focus:border-[var(--ss-o-400)]"
+              placeholder="Search student or email…"
+              className="w-full pl-8 pr-3 py-2 md:py-1.5 rounded-full border border-[var(--ss-i-200)] bg-white text-sm md:text-xs text-[var(--ss-i-900)] placeholder-[var(--ss-i-400)] focus:outline-none focus:border-[var(--ss-o-400)] min-h-[40px] md:min-h-0"
             />
           </div>
         </div>
@@ -439,36 +441,56 @@ export default function LogsPage() {
               </div>
             </div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead className="bg-[var(--ss-i-50)] sticky top-0">
-                  <tr className="text-left text-[11px] uppercase tracking-wide text-[var(--ss-i-500)]">
-                    <th className="px-4 py-2.5 font-semibold">Status</th>
-                    <th className="px-4 py-2.5 font-semibold">Student</th>
-                    <th className="px-4 py-2.5 font-semibold">Month</th>
-                    <th className="px-4 py-2.5 font-semibold">Channel</th>
-                    <th className="px-4 py-2.5 font-semibold">Recipient</th>
-                    <th className="px-4 py-2.5 font-semibold">Sent</th>
-                    <th className="px-4 py-2.5 font-semibold text-right">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {data.entries.map((entry) => {
-                    const isExpanded = expanded === entry.id;
-                    return (
-                      <RowGroup
-                        key={entry.id}
-                        entry={entry}
-                        isExpanded={isExpanded}
-                        onToggle={() => setExpanded(isExpanded ? null : entry.id)}
-                        onResend={() => handleResend(entry.id)}
-                        resending={resendingId === entry.id}
-                      />
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
+            <>
+              {/* Desktop table — unchanged */}
+              <div className="hidden md:block overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-[var(--ss-i-50)] sticky top-0">
+                    <tr className="text-left text-[11px] uppercase tracking-wide text-[var(--ss-i-500)]">
+                      <th className="px-4 py-2.5 font-semibold">Status</th>
+                      <th className="px-4 py-2.5 font-semibold">Student</th>
+                      <th className="px-4 py-2.5 font-semibold">Month</th>
+                      <th className="px-4 py-2.5 font-semibold">Channel</th>
+                      <th className="px-4 py-2.5 font-semibold">Recipient</th>
+                      <th className="px-4 py-2.5 font-semibold">Sent</th>
+                      <th className="px-4 py-2.5 font-semibold text-right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.entries.map((entry) => {
+                      const isExpanded = expanded === entry.id;
+                      return (
+                        <RowGroup
+                          key={entry.id}
+                          entry={entry}
+                          isExpanded={isExpanded}
+                          onToggle={() => setExpanded(isExpanded ? null : entry.id)}
+                          onResend={() => handleResend(entry.id)}
+                          resending={resendingId === entry.id}
+                        />
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Mobile cards — same data, stacked layout */}
+              <ul className="md:hidden divide-y divide-[var(--ss-i-100)]">
+                {data.entries.map((entry) => {
+                  const isExpanded = expanded === entry.id;
+                  return (
+                    <MobileCard
+                      key={entry.id}
+                      entry={entry}
+                      isExpanded={isExpanded}
+                      onToggle={() => setExpanded(isExpanded ? null : entry.id)}
+                      onResend={() => handleResend(entry.id)}
+                      resending={resendingId === entry.id}
+                    />
+                  );
+                })}
+              </ul>
+            </>
           )}
         </div>
 
@@ -616,5 +638,114 @@ function RowGroup({
         </tr>
       )}
     </>
+  );
+}
+
+function MobileCard({
+  entry,
+  isExpanded,
+  onToggle,
+  onResend,
+  resending,
+}: {
+  entry: DeliveryLogEntry;
+  isExpanded: boolean;
+  onToggle: () => void;
+  onResend: () => void;
+  resending: boolean;
+}) {
+  const overrideMismatch =
+    entry.intended_recipient && entry.recipient && entry.intended_recipient !== entry.recipient;
+  const resendLabel = entry.channel === "whatsapp" ? "Resend WhatsApp" : "Resend email";
+
+  return (
+    <li className="px-4 py-3.5">
+      <button
+        type="button"
+        onClick={onToggle}
+        className="w-full text-left flex items-start gap-3 min-h-[44px]"
+        aria-expanded={isExpanded}
+      >
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center justify-between gap-2 mb-1.5">
+            <StatusPill status={entry.status} />
+            <span
+              className="text-[11px] text-[var(--ss-i-500)]"
+              title={fullTimestamp(entry.sent_at)}
+            >
+              {timeAgo(entry.sent_at)}
+            </span>
+          </div>
+          <div className="font-semibold text-[var(--ss-i-900)] truncate">
+            {entry.student_name ?? "—"}
+          </div>
+          <div className="text-[12px] text-[var(--ss-i-500)] mt-0.5">
+            {entry.subject ? `${entry.subject} · ` : ""}
+            {prettyMonth(entry.reporting_month)}
+          </div>
+          <div className="mt-1.5 flex items-center gap-2 flex-wrap">
+            <ChannelIcon channel={entry.channel} />
+            <span className="text-[var(--ss-i-300)]">·</span>
+            <span className="font-mono text-[11px] text-[var(--ss-i-700)] break-all min-w-0">
+              {entry.recipient ?? <span className="italic font-sans text-[var(--ss-i-400)]">no recipient</span>}
+            </span>
+          </div>
+          {overrideMismatch && (
+            <div className="text-[10px] text-amber-700 mt-1 inline-flex items-center gap-1">
+              <ShieldAlert size={10} />
+              redirected (test mode)
+            </div>
+          )}
+        </div>
+        <ChevronRight
+          size={16}
+          className={`text-[var(--ss-i-400)] mt-1 shrink-0 transition-transform ${isExpanded ? "rotate-90" : ""}`}
+        />
+      </button>
+
+      {isExpanded && (
+        <div className="mt-3 space-y-2.5 border-t border-[var(--ss-i-100)] pt-3">
+          {overrideMismatch && entry.intended_recipient && (
+            <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs">
+              <div className="font-semibold text-amber-800 mb-0.5">Intended recipient (parent)</div>
+              <div className="font-mono text-amber-900 break-all">{entry.intended_recipient}</div>
+            </div>
+          )}
+          {entry.error_msg && (
+            <div className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs">
+              <div className="font-semibold text-rose-800 mb-0.5">Error</div>
+              <div className="text-rose-900 break-words">{entry.error_msg}</div>
+            </div>
+          )}
+          <div className="rounded-xl border border-[var(--ss-i-200)] bg-white px-3 py-2 text-xs">
+            <div className="font-semibold text-[var(--ss-i-700)] mb-0.5">Report ID</div>
+            <div className="font-mono text-[11px] text-[var(--ss-i-500)] break-all">
+              {entry.report_id}
+            </div>
+          </div>
+          <div className="flex flex-col gap-2 pt-1">
+            <button
+              type="button"
+              onClick={onResend}
+              disabled={resending}
+              className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-full text-sm font-semibold bg-[var(--ss-o-500)] text-white hover:bg-[var(--ss-o-600)] disabled:opacity-60 min-h-[44px]"
+            >
+              {resending ? (
+                <RefreshCw size={14} className="animate-spin" />
+              ) : (
+                <Send size={14} />
+              )}
+              {resending ? "Sending…" : resendLabel}
+            </button>
+            <Link
+              href={`/ptm/${entry.report_id}`}
+              className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-full text-sm font-semibold border border-[var(--ss-i-200)] bg-white text-[var(--ss-i-700)] hover:bg-[var(--ss-i-50)] min-h-[44px]"
+            >
+              Open report
+            </Link>
+          </div>
+        </div>
+      )}
+    </li>
   );
 }
