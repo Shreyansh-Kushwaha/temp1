@@ -226,6 +226,28 @@ async def _email_approved_report(report_id: str, pdf_bytes: bytes) -> None:
             "Email skipped: no email on record for student_id=%s name=%s",
             student_id, student_name,
         )
+        # Raise a support ticket so it shows up on /ptm/issues for the team
+        # to chase. Idempotent — won't duplicate if one is already open.
+        try:
+            from services import issue_service
+            await issue_service.upsert_issue(
+                type_="email_missing",
+                severity="medium",
+                title=f"No email on record for {student_name}",
+                description=(
+                    f"Approval of report {report_id} for {student_name} "
+                    "could not be delivered — the Wise classroom record has "
+                    "no parent/student email. The PDF was still generated and "
+                    "is available from the report page."
+                ),
+                entity_type="student",
+                entity_id=student_id,
+                entity_name=student_name,
+                metadata={"report_id": report_id},
+                created_by="auto_approve",
+            )
+        except Exception:
+            logger.exception("Failed to upsert email_missing issue (non-fatal)")
 
     sent_at = datetime.now(timezone.utc).isoformat()
     # actual_recipient is where the SMTP send went (may be the override inbox);

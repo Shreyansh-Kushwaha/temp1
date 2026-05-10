@@ -10,7 +10,7 @@ from fastapi import APIRouter, BackgroundTasks, HTTPException
 from pydantic import BaseModel
 
 from db.connection import get_db
-from services import claude_service, copilot_service, form_assist_service, knowledge_service, pdf_service, wise_service, tts_service, risk_service, version_service
+from services import claude_service, copilot_service, form_assist_service, issue_service, knowledge_service, pdf_service, wise_service, tts_service, risk_service, version_service
 
 router = APIRouter(prefix="/api/ptm", tags=["ptm"])
 
@@ -162,6 +162,78 @@ async def list_students_for_teacher(teacher_name: str):
 @router.get("/students/{student_id}/sessions")
 async def get_student_sessions(student_id: str):
     return await wise_service.get_student_sessions(student_id)
+
+
+class IssueStatusUpdate(BaseModel):
+    status: str
+    resolution_note: str | None = None
+    resolved_by: str | None = None
+
+
+@router.get("/issues")
+async def list_issues_endpoint(
+    status: str | None = None,
+    type: str | None = None,
+    severity: str | None = None,
+    q: str | None = None,
+    limit: int = 200,
+    offset: int = 0,
+):
+    """Support queue. Filter by status/type/severity, free-text search across
+    title/entity_name/description.
+    """
+    limit = max(1, min(int(limit or 200), 500))
+    offset = max(0, int(offset or 0))
+    entries, total = await issue_service.list_issues(
+        status=status, type_=type, severity=severity, q=q,
+        limit=limit, offset=offset,
+    )
+
+    # Counters help the UI show category badges without a second round-trip.
+    db = await get_db()
+    try:
+        async with db.execute(
+            "SELECT type, status, COUNT(*) FROM ptm_issues GROUP BY type, status"
+        ) as cur:
+            grid = await cur.fetchall()
+    finally:
+        await db.close()
+
+    by_type: dict = {}
+    for type_name, st, count in grid:
+        by_type.setdefault(type_name, {"open": 0, "in_progress": 0, "resolved": 0, "wont_fix": 0})
+        by_type[type_name][st] = int(count)
+
+    return {
+        "total": total,
+        "entries": entries,
+        "counts_by_type": by_type,
+    }
+
+
+@router.patch("/issues/{issue_id}")
+async def update_issue_endpoint(issue_id: str, body: IssueStatusUpdate):
+    try:
+        await issue_service.update_issue_status(
+            issue_id, body.status,
+            resolution_note=body.resolution_note,
+            resolved_by=body.resolved_by,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"status": "ok"}
+
+
+@router.post("/issues/checks/email-records/run")
+async def run_email_records_check_endpoint():
+    """Run the email-records audit synchronously and return a summary.
+
+    Frontend calls this from a task-toast: 'Check started…' → on response
+    'Check finished — N issues opened, M already open' or 'No issues found'.
+    Idempotent — re-running won't duplicate open tickets.
+    """
+    summary = await issue_service.run_email_records_check()
+    return summary
 
 
 @router.post("/delivery-log/{log_id}/resend")

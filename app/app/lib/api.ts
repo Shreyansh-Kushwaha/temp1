@@ -64,6 +64,41 @@ export interface DeliveryLogResponse {
   entries: DeliveryLogEntry[];
 }
 
+export type IssueStatus = "open" | "in_progress" | "resolved" | "wont_fix";
+export type IssueSeverity = "low" | "medium" | "high";
+
+export interface Issue {
+  id: string;
+  type: string;
+  status: IssueStatus;
+  severity: IssueSeverity;
+  title: string;
+  description: string | null;
+  entity_type: string | null;
+  entity_id: string | null;
+  entity_name: string | null;
+  metadata: Record<string, unknown> | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+  resolved_at: string | null;
+  resolved_by: string | null;
+  resolution_note: string | null;
+}
+
+export interface IssuesResponse {
+  total: number;
+  entries: Issue[];
+  counts_by_type: Record<string, Record<IssueStatus, number>>;
+}
+
+export interface EmailRecordsCheckSummary {
+  checked: number;
+  missing: number;
+  opened: number;
+  already_open: number;
+}
+
 export interface GenerateFromSessionsBody {
   student_id: string;
   student_name: string;
@@ -311,6 +346,43 @@ export const api = {
       recipient?: string | null;
     }> {
       return apiFetch(`/api/ptm/delivery-log/${logId}/resend`, { method: "POST" });
+    },
+  },
+
+  issues: {
+    list(params?: {
+      status?: string;
+      type?: string;
+      severity?: string;
+      q?: string;
+      limit?: number;
+      offset?: number;
+    }): Promise<IssuesResponse> {
+      const qs = new URLSearchParams();
+      if (params?.status) qs.set("status", params.status);
+      if (params?.type) qs.set("type", params.type);
+      if (params?.severity) qs.set("severity", params.severity);
+      if (params?.q) qs.set("q", params.q);
+      if (params?.limit != null) qs.set("limit", String(params.limit));
+      if (params?.offset != null) qs.set("offset", String(params.offset));
+      const query = qs.toString() ? `?${qs}` : "";
+      return apiFetch<IssuesResponse>(`/api/ptm/issues${query}`);
+    },
+
+    update(
+      id: string,
+      body: { status: IssueStatus; resolution_note?: string; resolved_by?: string },
+    ): Promise<{ status: string }> {
+      return apiFetch(`/api/ptm/issues/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify(body),
+      });
+    },
+
+    runEmailRecordsCheck(): Promise<EmailRecordsCheckSummary> {
+      return apiFetch(`/api/ptm/issues/checks/email-records/run`, {
+        method: "POST",
+      });
     },
   },
 
