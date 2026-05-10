@@ -513,6 +513,31 @@ async def generate_report_from_sessions(body: GenerateFromSessionsBody, backgrou
     if body.next_month_goals:
         overrides["next_month_topics"] = body.next_month_goals
 
+    # Reject duplicates up-front so we don't burn an LLM call on a request that
+    # the unique constraint will reject anyway. The constraint
+    # (idx_reports_unique_active_per_month) covers (student_id, reporting_month)
+    # for non-deleted rows.
+    db = await get_db()
+    try:
+        async with db.execute(
+            "SELECT id FROM ptm_reports WHERE student_id = ? AND reporting_month = ? "
+            "AND deleted_at IS NULL LIMIT 1",
+            [body.student_id, month],
+        ) as cur:
+            existing = await cur.fetchone()
+    finally:
+        await db.close()
+    if existing:
+        pretty_month = month
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"A report for {body.student_name} already exists for {pretty_month}. "
+                f"Open or delete the existing report before generating a new one. "
+                f"(existing report id: {existing[0]})"
+            ),
+        )
+
     tone = _tone_dict(body.tone)
     draft = await claude_service.generate_report(wise_data, overrides or None, tone)
     overall = _extract_overall_confidence(draft)
@@ -521,16 +546,31 @@ async def generate_report_from_sessions(body: GenerateFromSessionsBody, backgrou
     try:
         ts = now_iso()
         report_id = str(uuid.uuid4())
-        await db.execute(
-            """INSERT INTO ptm_reports
-               (id, student_id, teacher_id, student_name, subject, reporting_month,
-                status, draft_content, regeneration_count, created_at, updated_at,
-                overall_confidence, tone_warmth, tone_detail)
-               VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, 0, ?, ?, ?, ?, ?)""",
-            [report_id, body.student_id, "", body.student_name, body.subject,
-             month, json.dumps(draft), ts, ts, overall,
-             (tone or {}).get("warmth", "balanced"), (tone or {}).get("detail", "balanced")],
-        )
+        try:
+            await db.execute(
+                """INSERT INTO ptm_reports
+                   (id, student_id, teacher_id, student_name, subject, reporting_month,
+                    status, draft_content, regeneration_count, created_at, updated_at,
+                    overall_confidence, tone_warmth, tone_detail)
+                   VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, 0, ?, ?, ?, ?, ?)""",
+                [report_id, body.student_id, "", body.student_name, body.subject,
+                 month, json.dumps(draft), ts, ts, overall,
+                 (tone or {}).get("warmth", "balanced"), (tone or {}).get("detail", "balanced")],
+            )
+        except Exception as e:
+            # Defensive backstop: the SELECT above is the primary check, but a
+            # concurrent request could have inserted between our check and
+            # this INSERT. Convert the UniqueViolationError into a clean 409
+            # so the frontend sees the same error shape either way.
+            if "idx_reports_unique_active_per_month" in str(e) or "unique constraint" in str(e).lower():
+                raise HTTPException(
+                    status_code=409,
+                    detail=(
+                        f"A report for {body.student_name} was just created by another "
+                        f"request for {month}. Refresh and open the existing one."
+                    ),
+                )
+            raise
         # Initial version snapshot
         await db.execute(
             """INSERT INTO ptm_report_versions
