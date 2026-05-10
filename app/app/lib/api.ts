@@ -41,6 +41,29 @@ export interface SessionInfo {
   transcript_excerpt?: string;
 }
 
+export type DeliveryStatus = "sent" | "failed" | "skipped" | "pending" | string;
+
+export interface DeliveryLogEntry {
+  id: string;
+  report_id: string;
+  channel: string;
+  status: DeliveryStatus;
+  sent_at: string | null;
+  error_msg: string | null;
+  recipient: string | null;
+  intended_recipient: string | null;
+  student_name: string | null;
+  subject: string | null;
+  reporting_month: string | null;
+}
+
+export interface DeliveryLogResponse {
+  override_active: boolean;
+  override_recipient: string | null;
+  total: number;
+  entries: DeliveryLogEntry[];
+}
+
 export interface GenerateFromSessionsBody {
   student_id: string;
   student_name: string;
@@ -257,6 +280,37 @@ export const api = {
 
     delete(id: string): Promise<{ status: string }> {
       return apiFetch(`/api/ptm/reports/${id}`, { method: "DELETE" });
+    },
+  },
+
+  deliveryLog: {
+    list(params?: {
+      status?: string;
+      channel?: string;
+      q?: string;
+      since?: string;
+      limit?: number;
+      offset?: number;
+    }): Promise<DeliveryLogResponse> {
+      const qs = new URLSearchParams();
+      if (params?.status) qs.set("status", params.status);
+      if (params?.channel) qs.set("channel", params.channel);
+      if (params?.q) qs.set("q", params.q);
+      if (params?.since) qs.set("since", params.since);
+      if (params?.limit != null) qs.set("limit", String(params.limit));
+      if (params?.offset != null) qs.set("offset", String(params.offset));
+      const query = qs.toString() ? `?${qs}` : "";
+      return apiFetch<DeliveryLogResponse>(`/api/ptm/delivery-log${query}`);
+    },
+
+    resend(logId: string): Promise<{
+      id: string;
+      channel: string;
+      status: string;
+      error: string | null;
+      recipient?: string | null;
+    }> {
+      return apiFetch(`/api/ptm/delivery-log/${logId}/resend`, { method: "POST" });
     },
   },
 

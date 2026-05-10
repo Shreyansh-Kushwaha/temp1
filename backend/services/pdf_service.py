@@ -16,12 +16,24 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import uuid
 from datetime import datetime, timezone
 
 from db.connection import get_db
 from services import storage_service
 
 logger = logging.getLogger("ptm.pdf")
+
+
+def _pretty_month(reporting_month: str | None) -> str:
+    """'2026-04-01' → 'April 2026'. Falls back to the raw value if unparseable."""
+    if not reporting_month:
+        return ""
+    try:
+        d = datetime.strptime(str(reporting_month)[:7], "%Y-%m")
+        return d.strftime("%B %Y")
+    except Exception:
+        return str(reporting_month)
 
 PDF_TIMEOUT_MS = int(os.getenv("PTM_PDF_TIMEOUT_MS", "30000"))
 
@@ -47,7 +59,12 @@ async def render_report_pdf(report_id: str) -> bytes:
             # that matches the in-app preview exactly — no pagination, no
             # broken sections, no blank space.
             await page.emulate_media(media="screen")
-            response = await page.goto(url, wait_until="networkidle", timeout=PDF_TIMEOUT_MS)
+            # Wait for page resources to load, NOT networkidle: the
+            # BackendStatusIndicator polls /health on a continuous timer,
+            # so networkidle would basically never fire and Playwright would
+            # time out. The report content is already in the SSR'd markup,
+            # so 'load' is sufficient.
+            response = await page.goto(url, wait_until="load", timeout=PDF_TIMEOUT_MS)
             logger.info(
                 "Playwright navigated to %s → status %s",
                 url, response.status if response else "no response",
@@ -105,10 +122,19 @@ async def render_report_pdf(report_id: str) -> bytes:
             await browser.close()
 
 
-async def generate_and_store_pdf(report_id: str, version_number: int) -> str | None:
+async def generate_and_store_pdf(
+    report_id: str,
+    version_number: int,
+    send_email: bool = False,
+) -> str | None:
     """Render the report's print page, upload to Supabase, persist the URL on
     `ptm_reports.pdf_url` and `ptm_report_versions.pdf_url`. Returns the URL on
-    success, None on failure (background task — must not raise)."""
+    success, None on failure (background task — must not raise).
+
+    When `send_email=True` (set by the approve flow), also emails the rendered
+    PDF to the student/parent address pulled from MongoDB. Email failures are
+    logged + recorded in ptm_delivery_log; they never roll back the PDF step.
+    """
     try:
         pdf_bytes = await render_report_pdf(report_id)
         public_url = await asyncio.to_thread(
@@ -139,4 +165,99 @@ async def generate_and_store_pdf(report_id: str, version_number: int) -> str | N
         "Report PDF stored: report=%s version=%s url=%s",
         report_id, version_number, public_url,
     )
+
+    if send_email:
+        try:
+            await _email_approved_report(report_id, pdf_bytes)
+        except Exception:
+            logger.exception("Email step failed: report=%s", report_id)
+
     return public_url
+
+
+async def _email_approved_report(report_id: str, pdf_bytes: bytes) -> None:
+    """Look up the recipient + send the email + record the outcome.
+
+    Updates the existing email-channel ptm_delivery_log row (created by
+    approve_report) with the actual outcome, or inserts a new row if no
+    pending row exists.
+    """
+    from services import email_service, wise_service
+
+    db = await get_db()
+    try:
+        async with db.execute(
+            "SELECT student_id, student_name, reporting_month, status "
+            "FROM ptm_reports WHERE id=?",
+            [report_id],
+        ) as cur:
+            row = await cur.fetchone()
+    finally:
+        await db.close()
+
+    if not row:
+        logger.warning("Email skipped: report not found id=%s", report_id)
+        return
+    student_id, student_name, reporting_month, status = row[0], row[1], row[2], row[3]
+    if status != "approved":
+        logger.info(
+            "Email skipped: report not in 'approved' state (status=%s) id=%s",
+            status, report_id,
+        )
+        return
+
+    to_email = await wise_service.get_student_email(student_id)
+    pretty_month = _pretty_month(reporting_month)
+    safe_name = (student_name or "Student").replace(" ", "_").replace("/", "_")
+    safe_month = pretty_month.replace(" ", "_") or "Report"
+    pdf_filename = f"PTM_Report_{safe_name}_{safe_month}.pdf"
+
+    delivery_status, error = await email_service.send_report_email(
+        to_email=to_email or "",
+        student_name=student_name or "Your child",
+        pretty_month=pretty_month,
+        pdf_bytes=pdf_bytes,
+        pdf_filename=pdf_filename,
+    )
+
+    if delivery_status == "skipped" and not to_email:
+        error = "no_email_on_record"
+        logger.warning(
+            "Email skipped: no email on record for student_id=%s name=%s",
+            student_id, student_name,
+        )
+
+    sent_at = datetime.now(timezone.utc).isoformat()
+    # actual_recipient is where the SMTP send went (may be the override inbox);
+    # intended_recipient is who the parent would normally be — same value when
+    # no override is configured.
+    override = os.getenv("EMAIL_OVERRIDE_RECIPIENT", "").strip()
+    actual_recipient = override or to_email or None
+    intended_recipient = to_email or None
+
+    db = await get_db()
+    try:
+        async with db.execute(
+            "SELECT id FROM ptm_delivery_log WHERE report_id=? AND channel='email' "
+            "ORDER BY sent_at DESC LIMIT 1",
+            [report_id],
+        ) as cur:
+            existing = await cur.fetchone()
+        if existing:
+            await db.execute(
+                "UPDATE ptm_delivery_log SET status=?, sent_at=?, error_msg=?, "
+                "recipient=?, intended_recipient=? WHERE id=?",
+                [delivery_status, sent_at, error,
+                 actual_recipient, intended_recipient, existing[0]],
+            )
+        else:
+            await db.execute(
+                "INSERT INTO ptm_delivery_log "
+                "(id, report_id, channel, status, sent_at, error_msg, recipient, intended_recipient) "
+                "VALUES (?, ?, 'email', ?, ?, ?, ?, ?)",
+                [str(uuid.uuid4()), report_id, delivery_status, sent_at, error,
+                 actual_recipient, intended_recipient],
+            )
+        await db.commit()
+    finally:
+        await db.close()

@@ -1,5 +1,6 @@
 import json
 import logging
+import os
 import uuid
 from datetime import datetime, timezone
 
@@ -161,6 +162,215 @@ async def list_students_for_teacher(teacher_name: str):
 @router.get("/students/{student_id}/sessions")
 async def get_student_sessions(student_id: str):
     return await wise_service.get_student_sessions(student_id)
+
+
+@router.post("/delivery-log/{log_id}/resend")
+async def resend_delivery(log_id: str):
+    """Resend a previous delivery using the report's existing PDF.
+
+    Inserts a new ptm_delivery_log row with the new attempt's outcome rather
+    than overwriting the original entry — so the page shows the full history.
+    Email channel: pulls current parent address from Mongo, downloads the
+    existing rendered PDF from Supabase, and sends via SMTP.
+    WhatsApp channel: still mocked (logs a successful send row).
+    """
+    db = await get_db()
+    try:
+        async with db.execute(
+            "SELECT d.report_id, d.channel, r.pdf_url, r.student_id, r.student_name, "
+            "r.reporting_month, r.deleted_at "
+            "FROM ptm_delivery_log d "
+            "LEFT JOIN ptm_reports r ON r.id = d.report_id "
+            "WHERE d.id = ?",
+            [log_id],
+        ) as cur:
+            row = await cur.fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Log entry not found")
+        report_id, channel, pdf_url, student_id, student_name, reporting_month, deleted_at = (
+            row[0], row[1], row[2], row[3], row[4], row[5], row[6],
+        )
+        if deleted_at:
+            raise HTTPException(status_code=400, detail="Report has been deleted")
+
+        ts = now_iso()
+        new_id = str(uuid.uuid4())
+
+        if channel == "email":
+            # Re-render the PDF instead of downloading the cached one from
+            # Supabase. The cached PDF can be stale (e.g. captured when the
+            # print page was erroring), and a fresh render also picks up any
+            # report edits since the last send. Best-effort re-upload keeps
+            # the public pdf_url in sync.
+            try:
+                pdf_bytes = await pdf_service.render_report_pdf(report_id)
+            except Exception as e:
+                logger.exception("Resend: PDF render failed for report=%s", report_id)
+                raise HTTPException(status_code=500, detail=f"PDF render failed: {e}")
+
+            try:
+                # Look up current version_number so the upload overwrites the
+                # latest stored copy rather than orphaning a new file.
+                from services import storage_service
+                async with db.execute(
+                    "SELECT COALESCE(MAX(version_number), 1) FROM ptm_report_versions WHERE report_id=?",
+                    [report_id],
+                ) as cur:
+                    (current_version,) = await cur.fetchone()
+                import asyncio as _asyncio
+                public_url = await _asyncio.to_thread(
+                    storage_service.upload_report_pdf, pdf_bytes, report_id, int(current_version),
+                )
+                await db.execute(
+                    "UPDATE ptm_reports SET pdf_url=?, updated_at=? WHERE id=?",
+                    [public_url, ts, report_id],
+                )
+                await db.execute(
+                    "UPDATE ptm_report_versions SET pdf_url=? WHERE report_id=? AND version_number=?",
+                    [public_url, report_id, int(current_version)],
+                )
+                await db.commit()
+            except Exception:
+                # Re-upload is best-effort — we still want to send the freshly
+                # rendered bytes via email even if Supabase is having a moment.
+                logger.exception("Resend: re-upload failed (continuing with send)")
+
+            to_email = await wise_service.get_student_email(student_id)
+            pretty_month = pdf_service._pretty_month(reporting_month)
+            safe_name = (student_name or "Student").replace(" ", "_").replace("/", "_")
+            safe_month = pretty_month.replace(" ", "_") or "Report"
+            pdf_filename = f"PTM_Report_{safe_name}_{safe_month}.pdf"
+
+            from services import email_service
+            status, error = await email_service.send_report_email(
+                to_email=to_email or "",
+                student_name=student_name or "Your child",
+                pretty_month=pretty_month,
+                pdf_bytes=pdf_bytes,
+                pdf_filename=pdf_filename,
+            )
+            if status == "skipped" and not to_email:
+                error = "no_email_on_record"
+
+            override = os.getenv("EMAIL_OVERRIDE_RECIPIENT", "").strip()
+            actual_recipient = override or to_email or None
+            await db.execute(
+                "INSERT INTO ptm_delivery_log "
+                "(id, report_id, channel, status, sent_at, error_msg, recipient, intended_recipient) "
+                "VALUES (?, ?, 'email', ?, ?, ?, ?, ?)",
+                [new_id, report_id, status, ts, error, actual_recipient, to_email],
+            )
+            await db.commit()
+            return {
+                "id": new_id, "channel": "email", "status": status,
+                "error": error, "recipient": actual_recipient,
+            }
+
+        if channel == "whatsapp":
+            await db.execute(
+                "INSERT INTO ptm_delivery_log "
+                "(id, report_id, channel, status, sent_at, error_msg) "
+                "VALUES (?, ?, 'whatsapp', 'sent', ?, NULL)",
+                [new_id, report_id, ts],
+            )
+            await db.commit()
+            return {"id": new_id, "channel": "whatsapp", "status": "sent", "error": None}
+
+        raise HTTPException(status_code=400, detail=f"Unsupported channel: {channel}")
+    finally:
+        await db.close()
+
+
+@router.get("/delivery-log")
+async def list_delivery_log(
+    status: str | None = None,
+    channel: str | None = None,
+    q: str | None = None,
+    since: str | None = None,
+    limit: int = 100,
+    offset: int = 0,
+):
+    """Chronological delivery log for the Logs page.
+
+    Joins ptm_delivery_log with ptm_reports so each row carries enough
+    context (student, subject, month) to render without a second round-trip.
+    """
+    limit = max(1, min(int(limit or 100), 500))
+    offset = max(0, int(offset or 0))
+
+    where = ["1=1"]
+    args: list = []
+    if status:
+        wanted = [s.strip() for s in status.split(",") if s.strip()]
+        if wanted:
+            where.append(f"d.status IN ({','.join(['?'] * len(wanted))})")
+            args.extend(wanted)
+    if channel:
+        wanted = [c.strip() for c in channel.split(",") if c.strip()]
+        if wanted:
+            where.append(f"d.channel IN ({','.join(['?'] * len(wanted))})")
+            args.extend(wanted)
+    if since:
+        where.append("d.sent_at >= ?")
+        args.append(since)
+    if q:
+        like = f"%{q.strip()}%"
+        where.append(
+            "(r.student_name ILIKE ? OR d.recipient ILIKE ? OR d.intended_recipient ILIKE ?)"
+        )
+        args.extend([like, like, like])
+
+    where_sql = " AND ".join(where)
+
+    db = await get_db()
+    try:
+        async with db.execute(
+            f"SELECT COUNT(*) FROM ptm_delivery_log d "
+            f"LEFT JOIN ptm_reports r ON r.id = d.report_id "
+            f"WHERE {where_sql}",
+            args,
+        ) as cur:
+            (total,) = await cur.fetchone()
+
+        async with db.execute(
+            f"""SELECT d.id, d.report_id, d.channel, d.status, d.sent_at,
+                       d.error_msg, d.recipient, d.intended_recipient,
+                       r.student_name, r.subject, r.reporting_month
+                FROM ptm_delivery_log d
+                LEFT JOIN ptm_reports r ON r.id = d.report_id
+                WHERE {where_sql} AND (r.deleted_at IS NULL OR r.id IS NULL)
+                ORDER BY d.sent_at DESC NULLS LAST
+                LIMIT ? OFFSET ?""",
+            args + [limit, offset],
+        ) as cur:
+            rows = await cur.fetchall()
+    finally:
+        await db.close()
+
+    entries = [
+        {
+            "id": row[0],
+            "report_id": row[1],
+            "channel": row[2],
+            "status": row[3],
+            "sent_at": row[4],
+            "error_msg": row[5],
+            "recipient": row[6],
+            "intended_recipient": row[7],
+            "student_name": row[8],
+            "subject": row[9],
+            "reporting_month": row[10],
+        }
+        for row in rows
+    ]
+
+    override = os.getenv("EMAIL_OVERRIDE_RECIPIENT", "").strip()
+    return {
+        "override_active": bool(override),
+        "override_recipient": override or None,
+        "total": int(total or 0),
+        "entries": entries,
+    }
 
 
 @router.post("/reports/auto-fill-form")
@@ -562,13 +772,17 @@ async def approve_report(report_id: str, body: ApproveBody, background_tasks: Ba
              json.dumps(report["draft_content"]), body.teacher_note, ts],
         )
         # Mock delivery log entries
-        for channel in ("email", "whatsapp"):
+        # email starts 'pending' — pdf_service updates it to sent/failed/skipped
+        # once the background send finishes. whatsapp is still mocked.
+        for channel, initial_status in (("email", "pending"), ("whatsapp", "sent")):
             await db.execute(
-                "INSERT INTO ptm_delivery_log (id, report_id, channel, status, sent_at) VALUES (?, ?, ?, 'sent', ?)",
-                [str(uuid.uuid4()), report_id, channel, ts],
+                "INSERT INTO ptm_delivery_log (id, report_id, channel, status, sent_at) VALUES (?, ?, ?, ?, ?)",
+                [str(uuid.uuid4()), report_id, channel, initial_status, ts],
             )
         await db.commit()
-        background_tasks.add_task(pdf_service.generate_and_store_pdf, report_id, approved_version)
+        background_tasks.add_task(
+            pdf_service.generate_and_store_pdf, report_id, approved_version, True
+        )
         return {"status": "approved", "delivered_via": ["email", "whatsapp"]}
     finally:
         await db.close()
@@ -869,13 +1083,17 @@ async def override_escalated(report_id: str, background_tasks: BackgroundTasks):
             [str(uuid.uuid4()), report_id, approved_version,
              json.dumps(report["draft_content"]), ts],
         )
-        for channel in ("email", "whatsapp"):
+        # email starts 'pending' — pdf_service updates it to sent/failed/skipped
+        # once the background send finishes. whatsapp is still mocked.
+        for channel, initial_status in (("email", "pending"), ("whatsapp", "sent")):
             await db.execute(
-                "INSERT INTO ptm_delivery_log (id, report_id, channel, status, sent_at) VALUES (?, ?, ?, 'sent', ?)",
-                [str(uuid.uuid4()), report_id, channel, ts],
+                "INSERT INTO ptm_delivery_log (id, report_id, channel, status, sent_at) VALUES (?, ?, ?, ?, ?)",
+                [str(uuid.uuid4()), report_id, channel, initial_status, ts],
             )
         await db.commit()
-        background_tasks.add_task(pdf_service.generate_and_store_pdf, report_id, approved_version)
+        background_tasks.add_task(
+            pdf_service.generate_and_store_pdf, report_id, approved_version, True
+        )
         return {"status": "approved", "delivered_via": ["email", "whatsapp"]}
     finally:
         await db.close()

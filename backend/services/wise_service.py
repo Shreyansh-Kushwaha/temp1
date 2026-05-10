@@ -411,6 +411,45 @@ async def list_students_for_teacher(teacher_name: str) -> list[dict]:
     ]
 
 
+async def _mongo_get_student_email(student_id: str) -> str | None:
+    """Best-effort student/parent email lookup from Wise data.
+
+    Tries `wise_student_classrooms.student_email` first (denormalized,
+    matches the same student_id we already use everywhere), then falls back
+    to `wise_students.email` (canonical).
+    """
+    from db.mongo import get_mongo_db
+    db = get_mongo_db()
+
+    sc = await db["wise_student_classrooms"].find_one(
+        {"wise_student_id": student_id, "student_email": {"$nin": [None, ""]}},
+        {"student_email": 1},
+    )
+    if sc and sc.get("student_email"):
+        return str(sc["student_email"]).strip() or None
+
+    # Fallback: wise_students keyed by ObjectId.
+    try:
+        from bson import ObjectId
+        oid = ObjectId(student_id)
+        s = await db["wise_students"].find_one({"_id": oid}, {"email": 1})
+        if s and s.get("email"):
+            return str(s["email"]).strip() or None
+    except Exception:
+        pass
+
+    return None
+
+
+async def get_student_email(student_id: str) -> str | None:
+    if os.getenv("MONGO_CONNECTION_STRING", "").strip():
+        try:
+            return await _mongo_get_student_email(student_id)
+        except Exception as e:
+            logger.error(f"MongoDB get_student_email failed: {e}")
+    return None
+
+
 async def get_student_sessions(student_id: str) -> list[dict]:
     if os.getenv("MONGO_CONNECTION_STRING", "").strip():
         try:

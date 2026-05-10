@@ -11,3 +11,4 @@ supabase==2.30.0
 # cp312 wheels — no source compile). pdf_service.py lazy-imports it so the
 # backend boots fine even if the chromium browser binary isn't available.
 playwright==1.49.1
+aiosmtplib==3.0.2
