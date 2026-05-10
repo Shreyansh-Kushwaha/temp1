@@ -20,7 +20,7 @@ const plusJakartaSans = Plus_Jakarta_Sans({
 });
 
 export const metadata: Metadata = {
-  title: "PTM Agent — Super Sheldon",
+  title: "PTM Agent",
   description: "Automated Parent-Teacher Meeting reports for Sheldon Labs",
 };
 
