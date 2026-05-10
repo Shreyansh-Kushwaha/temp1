@@ -104,7 +104,7 @@ export default function GeneratePage() {
                   className="w-full appearance-none bg-white border border-[var(--ss-i-200)] rounded-2xl px-4 py-3 pr-10 text-sm font-semibold text-[var(--ss-i-900)] shadow-[var(--ss-shadow)] cursor-pointer focus:outline-none focus:ring-2 focus:ring-[var(--ss-o-300)] focus:border-[var(--ss-o-400)] transition-all disabled:opacity-60"
                   style={{ fontFamily: "var(--font-jakarta)" }}
                 >
-                  <option value="">— Select a teacher —</option>
+                  <option value="">Select a teacher</option>
                   {teachers.map((name) => (
                     <option key={name} value={name}>{name}</option>
                   ))}
