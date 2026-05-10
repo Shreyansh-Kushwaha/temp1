@@ -1225,7 +1225,16 @@ async def create_audio_summary(report_id: str, body: AudioSummaryBody):
         if not script:
             raise HTTPException(status_code=400, detail="No audio_script available — regenerate the report first")
 
-        result = await tts_service.synthesize_summary(script, voice=body.voice)
+        try:
+            result = await tts_service.synthesize_summary(script, voice=body.voice)
+        except Exception as e:
+            # Surface the actual reason so the frontend / network tab can see
+            # it (otherwise FastAPI swallows it to a generic 500). The most
+            # common production failures are quota/auth on the upstream TTS
+            # provider — keep the message human-readable.
+            logger.exception("TTS synthesis failed for report=%s", report_id)
+            detail = str(e) or e.__class__.__name__
+            raise HTTPException(status_code=502, detail=f"Audio generation failed: {detail}")
         ts = now_iso()
         audio_id = str(uuid.uuid4())
         await db.execute(
