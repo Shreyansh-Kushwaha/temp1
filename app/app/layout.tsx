@@ -4,6 +4,7 @@ import "./globals.css";
 import AuthGate from "@/app/components/AuthGate";
 import BackendStatusIndicator from "@/app/components/BackendStatusIndicator";
 import { ToastProvider } from "@/app/components/ToastProvider";
+import { GenerationQueueProvider } from "@/app/lib/generation-queue";
 
 const inter = Inter({
   subsets: ["latin"],
@@ -32,8 +33,10 @@ export default function RootLayout({
     <html lang="en" className={`${inter.variable} ${plusJakartaSans.variable} h-full`}>
       <body className="min-h-full flex flex-col">
         <ToastProvider>
-          <AuthGate>{children}</AuthGate>
-          <BackendStatusIndicator />
+          <GenerationQueueProvider>
+            <AuthGate>{children}</AuthGate>
+            <BackendStatusIndicator />
+          </GenerationQueueProvider>
         </ToastProvider>
       </body>
     </html>

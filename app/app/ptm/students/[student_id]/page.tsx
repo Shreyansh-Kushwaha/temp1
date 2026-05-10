@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, use } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import {
   ArrowLeft, Calendar, CheckSquare, Square, Loader2, AlertCircle,
   ChevronRight, Sparkles, BookOpen, Brain, Wand2,
@@ -9,8 +9,9 @@ import {
 import Link from "next/link";
 import Navbar from "@/app/components/Navbar";
 import CopilotPanel from "@/app/components/CopilotPanel";
-import { api, ApiError, type SessionInfo, type GenerateFromSessionsBody } from "@/app/lib/api";
+import { api, type SessionInfo, type GenerateFromSessionsBody } from "@/app/lib/api";
 import { useToast } from "@/app/components/ToastProvider";
+import { useGenerationQueue } from "@/app/lib/generation-queue";
 
 const ENGAGEMENT_OPTIONS = [
   { value: "Highly engaged — asked questions and contributed actively", label: "Highly Engaged" },
@@ -39,7 +40,6 @@ interface PageParams {
 
 export default function StudentSessionPage({ params }: { params: Promise<PageParams> }) {
   const { student_id } = use(params);
-  const router = useRouter();
   const searchParams = useSearchParams();
 
   const teacherName = searchParams.get("teacher_name") ?? "";
@@ -60,10 +60,12 @@ export default function StudentSessionPage({ params }: { params: Promise<PagePar
   const [parentNote, setParentNote] = useState("");
   const [nextMonthGoals, setNextMonthGoals] = useState("");
 
-  const [generating, setGenerating] = useState(false);
-  const [generateError, setGenerateError] = useState<string | null>(null);
+  // Brief visual ack on the button after enqueueing — actual lifecycle
+  // (pending/success/error) lives in the global generation-queue toast.
+  const [justStarted, setJustStarted] = useState(false);
   const [autoFilling, setAutoFilling] = useState(false);
   const toast = useToast();
+  const { enqueue } = useGenerationQueue();
 
   async function handleAutoFill() {
     if (selectedIds.size === 0) {
@@ -131,38 +133,28 @@ export default function StudentSessionPage({ params }: { params: Promise<PagePar
     });
   }
 
-  async function handleGenerate() {
+  function handleGenerate() {
     if (selectedIds.size === 0) return;
-    setGenerating(true);
-    setGenerateError(null);
-    try {
-      const body: GenerateFromSessionsBody = {
-        student_id,
-        student_name: studentName,
-        teacher_name: teacherName,
-        subject,
-        session_ids: Array.from(selectedIds),
-        ...(engagementLevel && { engagement_level: engagementLevel }),
-        ...(conceptUnderstanding && { concept_understanding: conceptUnderstanding }),
-        ...(homeworkEffort.trim() && { homework_effort: homeworkEffort.trim() }),
-        ...(specificHighlights.trim() && { specific_highlights: specificHighlights.trim() }),
-        ...(improvementAreas.trim() && { improvement_areas: improvementAreas.trim() }),
-        ...(parentNote.trim() && { parent_note: parentNote.trim() }),
-        ...(nextMonthGoals.trim() && { next_month_goals: nextMonthGoals.trim().split("\n").filter(Boolean) }),
-      };
-      const result = await api.reports.generateFromSessions(body);
-      router.push(`/ptm/${result.report_id}?generated=1`);
-    } catch (e) {
-      const msg =
-        e instanceof ApiError && e.status === 429
-          ? e.detail || "AI quota reached — please try again in a minute."
-          : e instanceof Error
-            ? e.message
-            : "Failed to generate report";
-      setGenerateError(msg);
-      toast.error(msg);
-      setGenerating(false);
-    }
+    const body: GenerateFromSessionsBody = {
+      student_id,
+      student_name: studentName,
+      teacher_name: teacherName,
+      subject,
+      session_ids: Array.from(selectedIds),
+      ...(engagementLevel && { engagement_level: engagementLevel }),
+      ...(conceptUnderstanding && { concept_understanding: conceptUnderstanding }),
+      ...(homeworkEffort.trim() && { homework_effort: homeworkEffort.trim() }),
+      ...(specificHighlights.trim() && { specific_highlights: specificHighlights.trim() }),
+      ...(improvementAreas.trim() && { improvement_areas: improvementAreas.trim() }),
+      ...(parentNote.trim() && { parent_note: parentNote.trim() }),
+      ...(nextMonthGoals.trim() && { next_month_goals: nextMonthGoals.trim().split("\n").filter(Boolean) }),
+    };
+    // Fire into the global queue. The toast picks up the lifecycle from here.
+    // Stay on the page so the user can immediately fire another generation —
+    // the toast also gives them a one-click "Open" when the result is ready.
+    enqueue(body);
+    setJustStarted(true);
+    window.setTimeout(() => setJustStarted(false), 1500);
   }
 
   const initials = studentName
@@ -176,7 +168,7 @@ export default function StudentSessionPage({ params }: { params: Promise<PagePar
     <div className="min-h-screen" style={{ background: "var(--ss-bg)" }}>
       <Navbar />
 
-      <main className="max-w-3xl mx-auto px-4 md:px-8 py-8">
+      <main className="max-w-3xl mx-auto px-4 py-6 md:px-8 md:py-8">
         {/* Back */}
         <Link
           href="/ptm"
@@ -195,7 +187,7 @@ export default function StudentSessionPage({ params }: { params: Promise<PagePar
               </span>
             </div>
             <div>
-              <h1 className="text-2xl font-extrabold text-[var(--ss-i-900)]" style={{ fontFamily: "var(--font-jakarta)" }}>
+              <h1 className="text-xl md:text-2xl font-extrabold text-[var(--ss-i-900)] break-words" style={{ fontFamily: "var(--font-jakarta)" }}>
                 {studentName || "Student"}
               </h1>
               <div className="flex items-center gap-2 mt-0.5">
@@ -379,23 +371,16 @@ export default function StudentSessionPage({ params }: { params: Promise<PagePar
 
         {/* ── Generate button ────────────────────────────────────────────────── */}
         <div className="sticky bottom-6 mt-8">
-          {generateError && (
-            <div className="mb-3 flex items-start gap-3 rounded-2xl border border-red-200 bg-red-50 p-3.5">
-              <AlertCircle size={15} className="text-red-500 mt-0.5 shrink-0" />
-              <p className="text-sm text-red-700">{generateError}</p>
-            </div>
-          )}
-
           <button
             onClick={handleGenerate}
-            disabled={generating || selectedIds.size === 0}
+            disabled={selectedIds.size === 0}
             className="w-full flex items-center justify-center gap-2.5 py-4 rounded-2xl bg-[var(--ss-o-500)] text-white font-bold text-base shadow-[var(--ss-shadow-brand)] hover:bg-[var(--ss-o-600)] disabled:opacity-50 disabled:cursor-not-allowed transition-all"
             style={{ fontFamily: "var(--font-jakarta)" }}
           >
-            {generating ? (
+            {justStarted ? (
               <>
-                <Loader2 size={18} className="animate-spin" />
-                Generating report…
+                <CheckSquare size={18} />
+                Started — see toast
               </>
             ) : (
               <>
@@ -411,7 +396,7 @@ export default function StudentSessionPage({ params }: { params: Promise<PagePar
             )}
           </button>
 
-          {selectedIds.size === 0 && !generating && (
+          {selectedIds.size === 0 && (
             <p className="text-center text-xs text-[var(--ss-i-400)] mt-2">
               Select at least one session to generate a report.
             </p>
