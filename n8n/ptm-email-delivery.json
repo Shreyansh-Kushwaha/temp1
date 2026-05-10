@@ -1,0 +1,90 @@
+{
+  "name": "PTM — Email delivery",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "ptm",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-ptm-receive",
+      "name": "Webhook (POST /ptm)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [-1280, 200],
+      "webhookId": "ptm-email-delivery"
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.body.pdf_url }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file",
+              "outputPropertyName": "data"
+            }
+          },
+          "timeout": 30000
+        }
+      },
+      "id": "fetch-pdf",
+      "name": "Fetch PDF",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [-1040, 200]
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "send",
+        "sendTo": "={{ $('Webhook (POST /ptm)').item.json.body.to_email }}",
+        "subject": "={{ $('Webhook (POST /ptm)').item.json.body.subject }}",
+        "emailType": "html",
+        "message": "={{ $('Webhook (POST /ptm)').item.json.body.html_body }}",
+        "options": {
+          "senderName": "={{ $('Webhook (POST /ptm)').item.json.body.from_name }}",
+          "attachmentsUi": {
+            "attachmentsBinary": [
+              {
+                "property": "data"
+              }
+            ]
+          }
+        }
+      },
+      "id": "gmail-send",
+      "name": "Send via Gmail",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [-800, 200]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { ok: true, log_id: $('Webhook (POST /ptm)').item.json.body.log_id, report_id: $('Webhook (POST /ptm)').item.json.body.report_id, gmail_message_id: $json.id } }}",
+        "options": {}
+      },
+      "id": "respond-ok",
+      "name": "Respond 200",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [-560, 200]
+    }
+  ],
+  "connections": {
+    "Webhook (POST /ptm)": {
+      "main": [[{ "node": "Fetch PDF", "type": "main", "index": 0 }]]
+    },
+    "Fetch PDF": {
+      "main": [[{ "node": "Send via Gmail", "type": "main", "index": 0 }]]
+    },
+    "Send via Gmail": {
+      "main": [[{ "node": "Respond 200", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": { "executionOrder": "v1" },
+  "active": false,
+  "pinData": {},
+  "meta": { "instanceId": "ptm-email-delivery-v1" }
+}

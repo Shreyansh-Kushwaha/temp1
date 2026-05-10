@@ -196,7 +196,7 @@ async def generate_and_store_pdf(
 
     if send_email:
         try:
-            await _email_approved_report(report_id, pdf_bytes, recipient_email_override)
+            await _email_approved_report(report_id, public_url, recipient_email_override)
         except Exception:
             logger.exception("Email step failed: report=%s", report_id)
 
@@ -205,7 +205,7 @@ async def generate_and_store_pdf(
 
 async def _email_approved_report(
     report_id: str,
-    pdf_bytes: bytes,
+    pdf_url: str,
     recipient_email_override: str | None = None,
 ) -> None:
     """Look up the recipient + send the email + record the outcome.
@@ -219,7 +219,7 @@ async def _email_approved_report(
     db = await get_db()
     try:
         async with db.execute(
-            "SELECT student_id, student_name, reporting_month, status "
+            "SELECT student_id, student_name, reporting_month, status, teacher_note "
             "FROM ptm_reports WHERE id=?",
             [report_id],
         ) as cur:
@@ -230,7 +230,9 @@ async def _email_approved_report(
     if not row:
         logger.warning("Email skipped: report not found id=%s", report_id)
         return
-    student_id, student_name, reporting_month, status = row[0], row[1], row[2], row[3]
+    student_id, student_name, reporting_month, status, teacher_note = (
+        row[0], row[1], row[2], row[3], row[4],
+    )
     if status != "approved":
         logger.info(
             "Email skipped: report not in 'approved' state (status=%s) id=%s",
@@ -253,12 +255,32 @@ async def _email_approved_report(
     safe_month = pretty_month.replace(" ", "_") or "Report"
     pdf_filename = f"PTM_Report_{safe_name}_{safe_month}.pdf"
 
+    # Pull the pending log row's id so we can pass it to n8n (lets the
+    # workflow optionally call back with the actual send outcome).
+    pending_log_id: str | None = None
+    db = await get_db()
+    try:
+        async with db.execute(
+            "SELECT id FROM ptm_delivery_log WHERE report_id=? AND channel='email' "
+            "AND status='pending' ORDER BY sent_at DESC LIMIT 1",
+            [report_id],
+        ) as cur:
+            existing = await cur.fetchone()
+        if existing:
+            pending_log_id = existing[0]
+    finally:
+        await db.close()
+
     delivery_status, error = await email_service.send_report_email(
         to_email=to_email or "",
         student_name=student_name or "Your child",
         pretty_month=pretty_month,
-        pdf_bytes=pdf_bytes,
+        pdf_url=pdf_url,
         pdf_filename=pdf_filename,
+        intended_recipient=on_record_email,
+        teacher_note=teacher_note,
+        log_id=pending_log_id,
+        report_id=report_id,
     )
 
     if delivery_status == "skipped" and not to_email:

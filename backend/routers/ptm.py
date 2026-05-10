@@ -306,10 +306,11 @@ async def resend_delivery(log_id: str, body: ResendBody | None = None):
                     [public_url, report_id, int(current_version)],
                 )
                 await db.commit()
+                pdf_url = public_url
             except Exception:
-                # Re-upload is best-effort — we still want to send the freshly
-                # rendered bytes via email even if Supabase is having a moment.
-                logger.exception("Resend: re-upload failed (continuing with send)")
+                # Re-upload is best-effort — fall back to the previously-stored
+                # pdf_url so the n8n webhook still has something to attach.
+                logger.exception("Resend: re-upload failed (continuing with previous PDF URL)")
 
             on_record_email = await wise_service.get_student_email(student_id)
             teacher_recipient = (body.recipient_email if body else None) or None
@@ -326,8 +327,11 @@ async def resend_delivery(log_id: str, body: ResendBody | None = None):
                 to_email=to_email or "",
                 student_name=student_name or "Your child",
                 pretty_month=pretty_month,
-                pdf_bytes=pdf_bytes,
+                pdf_url=pdf_url or "",
                 pdf_filename=pdf_filename,
+                intended_recipient=on_record_email,
+                log_id=new_id,
+                report_id=report_id,
             )
             if status == "skipped" and not to_email:
                 error = "no_email_on_record"
