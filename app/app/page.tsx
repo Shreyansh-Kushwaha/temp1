@@ -32,18 +32,18 @@ const STATS = [
 const STEPS = [
   {
     number: "01", Icon: Zap,
-    title: "Pick sessions & fill the form",
-    description: "Choose a teacher, select a student, then pick up to 4 past sessions. Fill in the quick teacher assessment — engagement, highlights, goals — and hit Generate.",
+    title: "Pick sessions, AI pre-fills the form",
+    description: "Choose a teacher, select a student, then pick up to 4 past sessions. The form auto-drafts engagement, highlights and goals from the session transcripts — you just review and tweak before hitting Generate.",
   },
   {
     number: "02", Icon: Bot,
-    title: "AI writes the full report",
-    description: "Gemini 2.5 Flash reads the session transcripts and your notes, then writes a detailed, parent-friendly report — strengths, milestones, action items, and more. Done in seconds.",
+    title: "GPT-5.1 writes the full report",
+    description: "Azure OpenAI GPT-5.1 reads the session transcripts and your notes, then writes a parent-friendly report — strengths, milestones, confidence trend, action items, audio summary. Generation runs in the background, so you can keep working.",
   },
   {
     number: "03", Icon: CheckCircle2,
-    title: "Teacher approves, parents receive",
-    description: "The draft lands in the approval queue. One click to approve and add a personal note — then it's delivered to parents automatically via email and WhatsApp.",
+    title: "Approve once, parents get a branded PDF",
+    description: "Draft lands in the approval queue. One click to approve — the system renders a print-ready PDF, emails it to the parent with a branded message, and logs the delivery for audit. Every send is visible on the Logs page with a one-click resend.",
   },
 ];
 
@@ -51,7 +51,7 @@ const FEATURES = [
   {
     size: "large", Icon: Bot, tag: "AI-powered",
     title: "Reports that actually sound human",
-    description: "Gemini 2.5 Flash writes every section in warm, parent-friendly language — no jargon, no boilerplate. Strengths, milestones, confidence trend, homework effort, recommended resources and more. Up to 3 pages of real insight.",
+    description: "Azure OpenAI GPT-5.1 writes every section in warm, parent-friendly language — no jargon, no boilerplate. Strengths, milestones, confidence trend, homework effort, recommended resources, plus an optional voice-narrated audio summary. Form auto-fill drafts the teacher's assessment from the session transcripts, so the human work is review, not writing.",
   },
   {
     size: "small", Icon: Shield, tag: "Quality control",
@@ -60,18 +60,18 @@ const FEATURES = [
   },
   {
     size: "small", Icon: RefreshCw, tag: "Feedback loop",
-    title: "2-cycle regeneration",
-    description: "Teachers reject → answer a short questionnaire → AI regenerates with corrections. After 2 cycles, it auto-escalates to a manager.",
+    title: "2-cycle regeneration, then escalate",
+    description: "Teachers reject → answer a short questionnaire → AI regenerates with corrections. After 2 cycles, the report lands on the Escalated queue for a manager override.",
   },
   {
     size: "small", Icon: Send, tag: "Delivery",
-    title: "Email + WhatsApp in one click",
-    description: "Approve the report and it goes straight to parents. No copy-paste, no attachments, no manual sending.",
+    title: "Branded PDF straight to the parent",
+    description: "Approval triggers a Playwright-rendered PDF, attached to a branded email sent over Gmail SMTP. Every send is logged on the Logs page — status, recipient, error, with a one-click resend.",
   },
   {
-    size: "small", Icon: Clock, tag: "Efficiency",
-    title: "8 pages → 1 approval click",
-    description: "Replaced a 8–9 page manual PTM template. Teachers go from draft to delivered in under a minute.",
+    size: "small", Icon: Clock, tag: "Operations",
+    title: "Support queue + audit trail built in",
+    description: "Missing parent emails, failed sends and other anomalies auto-raise tickets on the Issues page so the support team can chase them. A test-mode env var routes every email to a QA inbox until you're ready to go live.",
   },
 ];
 
@@ -87,11 +87,13 @@ const TESTIMONIALS = [
 ];
 
 const FAQS = [
-  { q: "How does the AI know what to write?",     a: "It reads the session transcripts from your Wise sessions — the actual notes from each class — plus the teacher assessment form you fill in. The more detail you give, the richer the report." },
-  { q: "What if the AI gets something wrong?",    a: "Inferred sections are highlighted so teachers know what to verify. If anything is off, reject the report, fill in a short questionnaire, and it regenerates with your corrections baked in." },
-  { q: "How many sessions should I select?",      a: "You can select up to 4 sessions. We recommend picking the most recent 3–4 so the report reflects current progress rather than older material." },
-  { q: "Where is the data stored?",               a: "Session transcripts stay in your existing MongoDB database. Generated reports are stored in a local SQLite database. Nothing leaves your infrastructure." },
-  { q: "Can teachers add their own note?",        a: "Yes — there's a personal note field in the approval modal. It appears as a highlighted section in the final report that parents receive." },
+  { q: "How does the AI know what to write?",      a: "It reads the session transcripts from your Wise sessions — the actual notes from each class — plus the teacher assessment form. We auto-draft the form from the same transcripts, so the human work is review and tweak rather than writing from scratch." },
+  { q: "What if the AI gets something wrong?",     a: "Inferred sections are highlighted in amber so teachers know what to verify. If anything is off, reject the report, fill in a short questionnaire, and GPT-5.1 regenerates with your corrections baked in. After 2 cycles it auto-escalates to a manager." },
+  { q: "How many sessions should I select?",       a: "Up to 4. We recommend the most recent 3–4 so the report reflects current progress rather than older material." },
+  { q: "Where is the data stored?",                a: "Session transcripts stay in the existing MongoDB. Generated reports + version history live in Supabase Postgres. Rendered PDFs are uploaded to Supabase Storage. PII never reaches the model — student first name, grade and subject are the only personal fields in the prompt." },
+  { q: "How are emails actually sent to parents?", a: "Gmail SMTP via the support@supersheldon.com Workspace account. Each send produces a row on the Logs page (status, recipient, sent_at, error). Anything that fails or skips can be one-click resent. A test-mode env var (EMAIL_OVERRIDE_RECIPIENT) lets QA route every email to a test inbox until you flip it off in production." },
+  { q: "What if a student has no parent email on record?", a: "The approval still succeeds and the PDF is stored — but instead of sending, the system opens an issue on the Issues page so the support team can chase the address. Once Wise has the email, hit Resend on the original log row and it goes out." },
+  { q: "Does it work on mobile?",                  a: "Yes — the navbar collapses to a drawer, tables become stacked cards, every action button is at least 44px tap-target. Teachers can review the Pending queue and approve from their phone during the day." },
 ];
 
 /* ─────────────────────────────────────────────
@@ -555,7 +557,7 @@ export default function LandingPage() {
                   className="hero-badge inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full text-xs font-semibold tracking-wide mb-6"
                   style={{ background: "rgba(255,107,31,0.1)", border: "1px solid rgba(255,107,31,0.25)", color: "rgba(255,160,80,0.95)" }}
                 >
-                  <Sparkles size={11} /> Powered by Gemini 2.5 Flash
+                  <Sparkles size={11} /> Powered by Azure OpenAI GPT-5.1
                 </div>
 
                 <h1
@@ -745,7 +747,7 @@ export default function LandingPage() {
                   Reports that actually sound human
                 </h3>
                 <p className="text-sm leading-relaxed max-w-md" style={{ color: "#5B6271" }}>
-                  Gemini 2.5 Flash reads session transcripts and teacher notes, then writes warm, specific reports — strengths, confidence trend, milestones, parent action items, recommended resources. Up to 3 full pages of real insight, not filler.
+                  Azure OpenAI GPT-5.1 reads session transcripts and teacher notes, then writes warm, specific reports — strengths, confidence trend, milestones, parent action items, recommended resources. Up to 3 full pages of real insight, not filler.
                 </p>
                 <div
                   className="mt-6 rounded-xl p-4"
@@ -913,7 +915,7 @@ export default function LandingPage() {
             style={{ borderTop: "1px solid #E5E8EE" }}
           >
             <span className="text-xs" style={{ color: "#C4C9D2" }}>© 2026 Sheldon Labs. All rights reserved.</span>
-            <span className="text-xs" style={{ color: "#C4C9D2" }}>Powered by Gemini 2.5 Flash · Built at Sheldon Labs</span>
+            <span className="text-xs" style={{ color: "#C4C9D2" }}>Powered by Azure OpenAI GPT-5.1 · Built at Sheldon Labs</span>
           </div>
         </div>
       </footer>
