@@ -28,19 +28,75 @@ _BATCH_SUBJECT_RE = re.compile(
     r"^(?:AUS|UK|US|USA|NEW|NZ)-\w+-[\w ]+-\w+-([\w ]+)-\w+$", re.IGNORECASE
 )
 
+# Tokens the batch code uses as a grade-level or placeholder rather than a
+# real subject. If the regex pulls one of these out (e.g. "AUS-…-Grade-5"),
+# treat the subject as missing instead of shipping a student labelled "Grade".
+_NON_SUBJECT_TOKENS = {"grade", "level", "class", "session"}
+
+# Known subject names (lowercase). Used for two recovery paths:
+#   1. Direct-match — when the whole batch_code is just a subject string
+#      (e.g. "English" or "maths") rather than the full dash-separated form.
+#   2. 5-segment fallback — when the trailing grade level is missing
+#      ("AUS-7547-Kiaan-1808-Math") and we need to look at parts[-1].
+# Add new offerings here when they show up; missing entries still extract via
+# the regex when the batch code follows the standard 6-segment shape.
+_KNOWN_SUBJECTS = {
+    "maths", "math", "mathematics", "english", "science", "coding",
+    "reasoning", "chemistry", "physics", "biology", "hindi", "french",
+    "spanish", "public speaking", "creative writing", "social studies",
+    "history", "geography", "computer", "programming", "logic",
+    "critical thinking", "art", "music", "chess", "abacus", "business",
+    "naplan", "vedic maths", "financial literacy", "11+exam prep",
+    "thinking skills", "confident speech", "confidence building",
+    "public communication", "other", "others",
+}
+
 
 def _extract_subject_from_batch_code(batch_code: str) -> str:
-    """'AUS-3621-Priyank-0226-Maths-3' → 'Maths'"""
+    """Best-effort subject extraction from a Wise batch code.
+
+    Recognized shapes:
+      'AUS-3621-Priyank-0226-Maths-3'  → 'Maths'
+      'AUS-7547-Kiaan-1808-Math'       → 'Math'        (missing trailing grade)
+      'English'                        → 'English'     (bare subject)
+
+    Returns "" when we can't recover a real subject (caller should default
+    to "General"). Notably never returns 'Grade' / 'Level' / 'Class' even
+    when those literally appear in the batch code, since they're grade-level
+    placeholders rather than subject names.
+    """
     s = (batch_code or "").strip()
+    if not s:
+        return ""
+
+    # 1) Direct-match: the whole batch code is a known subject string.
+    if s.lower() in _KNOWN_SUBJECTS:
+        return s.title()
+
+    # 2) Standard 6-segment shape via the regex.
     m = _BATCH_SUBJECT_RE.match(s)
     if m:
-        return m.group(1).strip().title()
-    # Fallback: second-to-last dash-segment
+        candidate = m.group(1).strip()
+        if candidate.lower() in _NON_SUBJECT_TOKENS:
+            return ""
+        return candidate.title()
+
+    # 3) Dash-split fallback. Prefer parts[-2] (the standard "subject-grade"
+    #    tail). When -2 is a digit, try parts[-1] if it looks like a known
+    #    subject — handles 5-segment codes that omit the trailing grade.
     parts = s.split("-")
     if len(parts) >= 2:
         candidate = parts[-2].strip()
-        if candidate and not candidate.isdigit():
+        if (
+            candidate
+            and not candidate.isdigit()
+            and candidate.lower() not in _NON_SUBJECT_TOKENS
+        ):
             return candidate.title()
+    if parts:
+        last = parts[-1].strip()
+        if last and not last.isdigit() and last.lower() in _KNOWN_SUBJECTS:
+            return last.title()
     return ""
 
 
