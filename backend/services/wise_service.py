@@ -414,13 +414,26 @@ async def list_students_for_teacher(teacher_name: str) -> list[dict]:
 async def _mongo_get_student_email(student_id: str) -> str | None:
     """Best-effort student/parent email lookup from Wise data.
 
-    Tries `wise_student_classrooms.student_email` first (denormalized,
-    matches the same student_id we already use everywhere), then falls back
-    to `wise_students.email` (canonical).
+    The `student_id` we store on `ptm_reports` actually originates from
+    `sessions.student_id`, which Wise uses as the **classroom** identifier
+    (`wise_student_classrooms.wise_class_id`) — not as the student record id.
+    So the primary lookup is by `wise_class_id`, with two fallbacks for
+    safety when older data uses different shapes.
     """
     from db.mongo import get_mongo_db
     db = get_mongo_db()
 
+    # Primary: wise_class_id match (correct path for everything that came in
+    # via the sessions pipeline).
+    sc = await db["wise_student_classrooms"].find_one(
+        {"wise_class_id": student_id, "student_email": {"$nin": [None, ""]}},
+        {"student_email": 1},
+    )
+    if sc and sc.get("student_email"):
+        return str(sc["student_email"]).strip() or None
+
+    # Fallback 1: maybe the id is actually a wise_student_id (different Wise
+    # records use different shapes; cheap to try).
     sc = await db["wise_student_classrooms"].find_one(
         {"wise_student_id": student_id, "student_email": {"$nin": [None, ""]}},
         {"student_email": 1},
@@ -428,7 +441,7 @@ async def _mongo_get_student_email(student_id: str) -> str | None:
     if sc and sc.get("student_email"):
         return str(sc["student_email"]).strip() or None
 
-    # Fallback: wise_students keyed by ObjectId.
+    # Fallback 2: wise_students keyed by ObjectId.
     try:
         from bson import ObjectId
         oid = ObjectId(student_id)
