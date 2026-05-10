@@ -58,8 +58,6 @@ export interface DeliveryLogEntry {
 }
 
 export interface DeliveryLogResponse {
-  override_active: boolean;
-  override_recipient: string | null;
   total: number;
   entries: DeliveryLogEntry[];
 }

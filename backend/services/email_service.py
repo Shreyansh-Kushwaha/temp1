@@ -40,17 +40,11 @@ def _build_message(
     pdf_bytes: bytes,
     pdf_filename: str,
     cfg: dict,
-    original_recipient: str = "",
 ) -> EmailMessage:
     msg = EmailMessage()
     msg["From"] = formataddr((cfg["from_name"], cfg["from_email"]))
     msg["To"] = to_email
     msg["Subject"] = f"{student_name}'s {pretty_month} PTM Report"
-    # When the override is on, record the real intended recipient in a hidden
-    # custom header so the visible email matches the parent-facing version 1:1
-    # but we can still trace where it would have gone in test mode.
-    if original_recipient and original_recipient != to_email:
-        msg["X-PTM-Original-Recipient"] = original_recipient
 
     text_body = (
         f"Hi,\n\n"
@@ -129,25 +123,13 @@ async def send_report_email(
       ("skipped", reason)   — config missing or no recipient; safe to ignore
       ("failed",  error)    — SMTP attempt errored; surfaces in delivery_log
     Never raises.
-
-    Test-mode safety: if EMAIL_OVERRIDE_RECIPIENT is set, every email is
-    routed to that address — including when the student has no email on
-    record (so QA still gets a deliverable for every approval). The visible
-    message is identical to what the parent would receive (same subject,
-    body, PDF). The real intended recipient is recorded only in a hidden
-    X-PTM-Original-Recipient header and the server logs. Unset the env var
-    to resume real delivery — at which point a missing parent email becomes
-    a true skip.
     """
     cfg = _smtp_config()
     if not cfg:
         logger.info("Email skipped: SMTP not configured (set SMTP_* env vars)")
         return ("skipped", "smtp_not_configured")
 
-    override = os.getenv("EMAIL_OVERRIDE_RECIPIENT", "").strip()
-    actual_to = override or to_email
-    if not actual_to:
-        # No override AND no parent on record → genuine skip in production.
+    if not to_email:
         return ("skipped", "no_recipient")
 
     try:
@@ -156,15 +138,7 @@ async def send_report_email(
         logger.error("aiosmtplib not installed; cannot send email")
         return ("skipped", "aiosmtplib_missing")
 
-    msg = _build_message(
-        actual_to, student_name, pretty_month, pdf_bytes, pdf_filename, cfg,
-        original_recipient=to_email if override else "",
-    )
-    if override:
-        logger.info(
-            "Email override active: redirecting %s → %s (EMAIL_OVERRIDE_RECIPIENT)",
-            to_email, override,
-        )
+    msg = _build_message(to_email, student_name, pretty_month, pdf_bytes, pdf_filename, cfg)
 
     try:
         await aiosmtplib.send(

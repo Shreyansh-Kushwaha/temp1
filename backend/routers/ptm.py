@@ -325,18 +325,16 @@ async def resend_delivery(log_id: str):
             if status == "skipped" and not to_email:
                 error = "no_email_on_record"
 
-            override = os.getenv("EMAIL_OVERRIDE_RECIPIENT", "").strip()
-            actual_recipient = override or to_email or None
             await db.execute(
                 "INSERT INTO ptm_delivery_log "
                 "(id, report_id, channel, status, sent_at, error_msg, recipient, intended_recipient) "
                 "VALUES (?, ?, 'email', ?, ?, ?, ?, ?)",
-                [new_id, report_id, status, ts, error, actual_recipient, to_email],
+                [new_id, report_id, status, ts, error, to_email, to_email],
             )
             await db.commit()
             return {
                 "id": new_id, "channel": "email", "status": status,
-                "error": error, "recipient": actual_recipient,
+                "error": error, "recipient": to_email,
             }
 
         if channel == "whatsapp":
@@ -437,10 +435,7 @@ async def list_delivery_log(
         for row in rows
     ]
 
-    override = os.getenv("EMAIL_OVERRIDE_RECIPIENT", "").strip()
     return {
-        "override_active": bool(override),
-        "override_recipient": override or None,
         "total": int(total or 0),
         "entries": entries,
     }

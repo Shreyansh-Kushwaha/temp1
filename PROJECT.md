@@ -15,7 +15,7 @@ Cut teacher prep time, standardise PTM output, surface confidence/evidence so te
 | TTS | **gTTS** (Google Translate, free). ElevenLabs was removed — Render's shared egress IPs trip ElevenLabs' free-tier abuse heuristic. |
 | DB | **PostgreSQL** (Supabase pooler in prod, `asyncpg` driver). Migrations in `backend/db/migrations/*.sql`, applied on startup. |
 | Storage | **Supabase Storage** — `pdfs` and `audio` public buckets. |
-| Email | **Gmail SMTP** via `aiosmtplib` (`support@supersheldon.com`). `EMAIL_OVERRIDE_RECIPIENT` redirects every send to a QA inbox while flipped on. |
+| Email | **Gmail SMTP** via `aiosmtplib` (`support@supersheldon.com`). Per-approve custom recipient option in the UI replaces the old env-var redirect — teachers can route any single approval to a test inbox without affecting other sends. |
 | WhatsApp | Mocked — row written to `ptm_delivery_log`, no real send. |
 | Wise (student data) | MongoDB (`motor`) — same DB used by the presales CRM. Mock data when `MONGO_CONNECTION_STRING` unset. |
 | Deploy | Backend on **Render** (`supersheldon-ptm.onrender.com`). Frontend on Vercel (any `*.vercel.app`). |
@@ -79,7 +79,7 @@ All migrations in `backend/db/migrations/`, run idempotently on startup.
 |---|---|
 | `ptm_reports` | core record. id, student/teacher, subject, reporting_month, status, draft_content (JSONB), pdf_url, audio_url, teacher_note, regeneration_count, overall_confidence, tone_warmth, tone_detail, soft delete. |
 | `ptm_questionnaire_responses` | engagement/concept/application ratings, topics correction, next-month topics, free-form note. |
-| `ptm_delivery_log` | per-channel send status (`pending` → `sent`/`failed`/`skipped`), recipient, intended_recipient (for env-override audit), error_msg. |
+| `ptm_delivery_log` | per-channel send status (`pending` → `sent`/`failed`/`skipped`), recipient (where the email actually went), intended_recipient (the on-record parent email — equal to recipient unless the teacher chose a custom address on approve), error_msg. |
 | `ptm_report_versions` | full snapshot per edit/approval/regeneration. Every approved version has its rendered PDF URL. Powers the diff viewer + audit trail. |
 | `ptm_audio_summaries` | provider, voice, script, audio_url, duration_seconds. |
 | `ptm_risk_signals` | per-student signals computed from cross-month data — attendance dip, confidence drop, repeated weak concepts. |
@@ -160,7 +160,7 @@ All migrations in `backend/db/migrations/`, run idempotently on startup.
 
 ### Delivery
 - **Real Gmail SMTP send** with branded HTML body + PDF attachment. PDF is generated in a background task by `pdf_service` (Playwright headless Chromium → MP3 stored in Supabase `pdfs` bucket).
-- **Test-mode override** — `EMAIL_OVERRIDE_RECIPIENT` redirects every send to a QA inbox; both the actual and intended recipient are recorded in the delivery log.
+- **Per-approve recipient override** — the Approve modal lets the teacher swap the on-record parent email for a custom address on a single send (great for QA or sending to a different guardian). The on-record email is still recorded as `intended_recipient` so the Logs page flags overridden sends with a "sent to custom address" chip.
 - **Delivery log** at `/ptm/logs` — searchable, channel filter (email/whatsapp), status filter. One-click resend on any failed/skipped row.
 - **WhatsApp** — log row only; no real send wired up.
 
@@ -235,7 +235,7 @@ Required env vars (see `.env.example`):
 - ✅ Frontend: 14 routes, 30+ components, fully wired to backend.
 - ✅ Backend: ~40 endpoints across reports, generation, delivery, automation, risk, knowledge, copilot, issues.
 - ✅ LLM: Azure OpenAI GPT-5.1 live; deterministic mock when no key.
-- ✅ Real Gmail SMTP delivery (with `EMAIL_OVERRIDE_RECIPIENT` for QA).
+- ✅ Real Gmail SMTP delivery (per-approve custom recipient option for QA / alternate addresses).
 - ✅ Playwright PDF render → Supabase storage.
 - ✅ gTTS audio summaries → Supabase storage. (ElevenLabs path removed.)
 - ✅ Versioning, diff viewer, tone re-render.

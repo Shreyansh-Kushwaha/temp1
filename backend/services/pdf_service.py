@@ -211,15 +211,16 @@ async def _email_approved_report(
         )
         return
 
-    override_recipient = (recipient_email_override or "").strip() or None
-    if override_recipient:
-        to_email = override_recipient
+    # Always look up the Wise on-record email for audit purposes; the teacher's
+    # custom recipient (if any) overrides where the email is actually sent.
+    on_record_email = await wise_service.get_student_email(student_id)
+    teacher_recipient = (recipient_email_override or "").strip() or None
+    to_email = teacher_recipient or on_record_email
+    if teacher_recipient and teacher_recipient != on_record_email:
         logger.info(
-            "Email recipient overridden by teacher: report=%s recipient=%s",
-            report_id, override_recipient,
+            "Email recipient overridden by teacher: report=%s on_record=%s sent_to=%s",
+            report_id, on_record_email, teacher_recipient,
         )
-    else:
-        to_email = await wise_service.get_student_email(student_id)
     pretty_month = _pretty_month(reporting_month)
     safe_name = (student_name or "Student").replace(" ", "_").replace("/", "_")
     safe_month = pretty_month.replace(" ", "_") or "Report"
@@ -263,12 +264,12 @@ async def _email_approved_report(
             logger.exception("Failed to upsert email_missing issue (non-fatal)")
 
     sent_at = datetime.now(timezone.utc).isoformat()
-    # actual_recipient is where the SMTP send went (may be the override inbox);
-    # intended_recipient is who the parent would normally be — same value when
-    # no override is configured.
-    override = os.getenv("EMAIL_OVERRIDE_RECIPIENT", "").strip()
-    actual_recipient = override or to_email or None
-    intended_recipient = to_email or None
+    # actual_recipient = where the email actually went (= teacher's custom
+    # address when set, else the on-record email).
+    # intended_recipient = the on-record parent email regardless of override,
+    # so the Logs page can flag teacher-overridden sends as a mismatch.
+    actual_recipient = to_email or None
+    intended_recipient = on_record_email or None
 
     db = await get_db()
     try:

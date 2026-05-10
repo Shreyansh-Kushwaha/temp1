@@ -299,23 +299,6 @@ export default function LogsPage() {
           </button>
         </div>
 
-        {/* Test-mode banner */}
-        {data?.override_active && (
-          <div className="mb-5 rounded-2xl border border-amber-300 bg-amber-50 px-4 py-3 flex items-start gap-3 shadow-[var(--ss-shadow)]">
-            <ShieldAlert size={18} className="text-amber-600 shrink-0 mt-0.5" />
-            <div className="text-sm text-amber-900">
-              <div className="font-semibold mb-0.5">Test mode active</div>
-              <div className="leading-snug">
-                All approval emails are being redirected to{" "}
-                <span className="font-mono font-semibold">{data.override_recipient}</span>{" "}
-                instead of the real parent. Real parents are <strong>not</strong>{" "}
-                receiving emails. Unset <span className="font-mono">EMAIL_OVERRIDE_RECIPIENT</span>{" "}
-                in the backend env to resume real delivery.
-              </div>
-            </div>
-          </div>
-        )}
-
         {/* Counters strip */}
         <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-5">
           {[
@@ -549,7 +532,7 @@ function RowGroup({
           {overrideMismatch && (
             <div className="text-[10px] text-amber-700 mt-0.5 inline-flex items-center gap-1">
               <ShieldAlert size={10} />
-              redirected (test mode)
+              sent to custom address
             </div>
           )}
         </td>
@@ -592,7 +575,7 @@ function RowGroup({
               {overrideMismatch && (
                 <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2">
                   <div className="font-semibold text-amber-800 mb-0.5">
-                    Intended recipient (parent)
+                    On-record parent email
                   </div>
                   <div className="font-mono text-amber-900 break-all">
                     {entry.intended_recipient}
@@ -693,7 +676,7 @@ function MobileCard({
           {overrideMismatch && (
             <div className="text-[10px] text-amber-700 mt-1 inline-flex items-center gap-1">
               <ShieldAlert size={10} />
-              redirected (test mode)
+              sent to custom address
             </div>
           )}
         </div>
@@ -707,7 +690,7 @@ function MobileCard({
         <div className="mt-3 space-y-2.5 border-t border-[var(--ss-i-100)] pt-3">
           {overrideMismatch && entry.intended_recipient && (
             <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs">
-              <div className="font-semibold text-amber-800 mb-0.5">Intended recipient (parent)</div>
+              <div className="font-semibold text-amber-800 mb-0.5">On-record parent email</div>
               <div className="font-mono text-amber-900 break-all">{entry.intended_recipient}</div>
             </div>
           )}
