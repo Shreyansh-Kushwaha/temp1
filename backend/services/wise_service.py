@@ -184,22 +184,37 @@ async def _mongo_list_students_for_teacher(teacher_name: str) -> list[dict]:
         {"$sort": {"student_name": 1}},
     ]
 
+    grouped = [doc async for doc in sessions_col.aggregate(pipeline)]
+
+    # Batch-fetch subjects for all students in one query (avoids N+1 round-trips
+    # to status_col, which is what made teacher selection take ~30s on Render).
+    names = sorted({
+        (str(d.get("student_name") or "").strip())
+        for d in grouped
+        if str(d.get("student_name") or "").strip()
+    })
+    subject_by_name: dict[str, str] = {}
+    if names:
+        async for sd in status_col.find(
+            {"studentName": {"$in": names}},
+            {"studentName": 1, "subject": 1},
+        ):
+            sname = str(sd.get("studentName") or "").strip()
+            if not sname or sname in subject_by_name:
+                continue
+            subject_by_name[sname] = _extract_subject_from_batch_code(
+                str(sd.get("subject") or "")
+            )
+
     students = []
-    async for doc in sessions_col.aggregate(pipeline):
+    for doc in grouped:
         student_id = str(doc["_id"]).strip()
         student_name = str(doc.get("student_name") or "").strip()
-
-        subject = ""
-        if student_name:
-            status_doc = await status_col.find_one({"studentName": student_name}, {"subject": 1})
-            if status_doc:
-                subject = _extract_subject_from_batch_code(str(status_doc.get("subject") or ""))
-
         last_session = doc.get("last_session")
         students.append({
             "student_id": student_id,
             "student_name": student_name or f"Student {student_id}",
-            "subject": subject or "General",
+            "subject": subject_by_name.get(student_name) or "General",
             "session_count": doc.get("session_count", 0),
             "last_session": last_session.isoformat() if last_session else None,
         })
