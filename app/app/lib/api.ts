@@ -116,11 +116,15 @@ export interface GenerateFromSessionsBody {
 export class ApiError extends Error {
   status: number;
   detail: string;
-  constructor(status: number, detail: string) {
+  /** Raw parsed response body. Use this when an endpoint returns structured
+   *  errors (e.g. FastAPI HTTPException with detail={"code":..., ...}). */
+  data: unknown;
+  constructor(status: number, detail: string, data: unknown = null) {
     super(detail || `HTTP ${status}`);
     this.name = "ApiError";
     this.status = status;
     this.detail = detail;
+    this.data = data;
   }
 }
 
@@ -131,16 +135,23 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
   });
   if (!res.ok) {
     const text = await res.text().catch(() => res.statusText);
-    // FastAPI sends `{"detail": "..."}` for HTTPException — pull that out so
-    // the message we surface to the user is clean.
+    // FastAPI sends `{"detail": "..."}` for HTTPException. `detail` may be
+    // a plain string OR an object (we sometimes use {message, code, ...} so
+    // callers can branch on machine-readable fields).
     let detail = text;
+    let data: unknown = null;
     try {
-      const parsed = JSON.parse(text);
-      if (parsed && typeof parsed.detail === "string") detail = parsed.detail;
+      data = JSON.parse(text);
+      const d = (data as { detail?: unknown })?.detail;
+      if (typeof d === "string") {
+        detail = d;
+      } else if (d && typeof d === "object" && typeof (d as { message?: unknown }).message === "string") {
+        detail = (d as { message: string }).message;
+      }
     } catch {
       /* leave detail = text */
     }
-    throw new ApiError(res.status, detail);
+    throw new ApiError(res.status, detail, data);
   }
   return res.json() as Promise<T>;
 }

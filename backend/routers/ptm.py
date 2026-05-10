@@ -528,14 +528,18 @@ async def generate_report_from_sessions(body: GenerateFromSessionsBody, backgrou
     finally:
         await db.close()
     if existing:
-        pretty_month = month
         raise HTTPException(
             status_code=409,
-            detail=(
-                f"A report for {body.student_name} already exists for {pretty_month}. "
-                f"Open or delete the existing report before generating a new one. "
-                f"(existing report id: {existing[0]})"
-            ),
+            detail={
+                "code": "duplicate_report",
+                "message": (
+                    f"A report for {body.student_name} already exists for {month}. "
+                    f"Open the existing report or delete it before generating a new one."
+                ),
+                "existing_report_id": existing[0],
+                "student_name": body.student_name,
+                "reporting_month": month,
+            },
         )
 
     tone = _tone_dict(body.tone)
@@ -563,12 +567,36 @@ async def generate_report_from_sessions(body: GenerateFromSessionsBody, backgrou
             # this INSERT. Convert the UniqueViolationError into a clean 409
             # so the frontend sees the same error shape either way.
             if "idx_reports_unique_active_per_month" in str(e) or "unique constraint" in str(e).lower():
+                # Look up the row that beat us to the insert so the frontend
+                # can offer an "Open" action instead of just an error.
+                existing_id = None
+                try:
+                    db_check = await get_db()
+                    try:
+                        async with db_check.execute(
+                            "SELECT id FROM ptm_reports WHERE student_id = ? "
+                            "AND reporting_month = ? AND deleted_at IS NULL LIMIT 1",
+                            [body.student_id, month],
+                        ) as cur:
+                            row_check = await cur.fetchone()
+                        if row_check:
+                            existing_id = row_check[0]
+                    finally:
+                        await db_check.close()
+                except Exception:
+                    pass
                 raise HTTPException(
                     status_code=409,
-                    detail=(
-                        f"A report for {body.student_name} was just created by another "
-                        f"request for {month}. Refresh and open the existing one."
-                    ),
+                    detail={
+                        "code": "duplicate_report",
+                        "message": (
+                            f"A report for {body.student_name} was just created by "
+                            f"another request for {month}. Open the existing one."
+                        ),
+                        "existing_report_id": existing_id,
+                        "student_name": body.student_name,
+                        "reporting_month": month,
+                    },
                 )
             raise
         # Initial version snapshot

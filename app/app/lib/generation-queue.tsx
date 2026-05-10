@@ -69,6 +69,26 @@ export function GenerationQueueProvider({
         onClick: () => router.push(`/ptm/${result.report_id}?generated=1`),
       });
     } catch (e) {
+      // Duplicate-report (HTTP 409) is a benign condition: the student already
+      // has an active report for this month. Show "Open" so the teacher can
+      // jump straight to the existing draft instead of getting a Retry button
+      // that's guaranteed to fail again.
+      if (e instanceof ApiError && e.status === 409) {
+        const detail = (e.data as { detail?: { existing_report_id?: string } } | null)?.detail;
+        const existingId = detail?.existing_report_id;
+        if (existingId) {
+          task.fail(
+            taskId,
+            `${studentName} already has a report for this month — open the existing one.`,
+            {
+              label: "Open",
+              onClick: () => router.push(`/ptm/${existingId}`),
+            },
+          );
+          return;
+        }
+      }
+
       const reason =
         e instanceof ApiError
           ? e.detail || `HTTP ${e.status}`
