@@ -216,30 +216,35 @@ export default function StudentSessionPage({ params }: { params: Promise<PagePar
         </Link>
 
         {/* Student header */}
-        <div className="flex items-start justify-between gap-4 mb-8 flex-wrap">
-          <div className="flex items-center gap-4">
-            <div className="w-14 h-14 rounded-2xl bg-[var(--ss-o-100)] flex items-center justify-center shrink-0">
-              <span className="text-[var(--ss-o-700)] font-bold text-lg" style={{ fontFamily: "var(--font-jakarta)" }}>
+        <div className="flex items-start justify-between gap-3 mb-8 flex-wrap">
+          <div className="flex items-center gap-3 sm:gap-4 min-w-0 flex-1">
+            <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-2xl bg-[var(--ss-o-100)] flex items-center justify-center shrink-0">
+              <span className="text-[var(--ss-o-700)] font-bold text-base sm:text-lg" style={{ fontFamily: "var(--font-jakarta)" }}>
                 {initials}
               </span>
             </div>
-            <div>
-              <h1 className="text-xl md:text-2xl font-extrabold text-[var(--ss-i-900)] break-words" style={{ fontFamily: "var(--font-jakarta)" }}>
+            <div className="min-w-0 flex-1">
+              <h1 className="text-lg sm:text-xl md:text-2xl font-extrabold text-[var(--ss-i-900)] break-words" style={{ fontFamily: "var(--font-jakarta)" }}>
                 {studentName || "Student"}
               </h1>
-              <div className="flex items-center gap-2 mt-0.5">
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-1 mt-1">
                 <span className="px-2 py-0.5 rounded-md bg-[var(--ss-i-100)] text-[var(--ss-i-600)] text-xs font-medium">{subject}</span>
-                <span className="text-xs text-[var(--ss-i-400)]">·</span>
-                <span className="text-xs text-[var(--ss-i-400)]">{teacherName}</span>
+                {teacherName && (
+                  <>
+                    <span className="text-xs text-[var(--ss-i-400)]">·</span>
+                    <span className="text-xs text-[var(--ss-i-400)] break-words">{teacherName}</span>
+                  </>
+                )}
               </div>
             </div>
           </div>
           <Link
             href={`/ptm/students/${student_id}/knowledge`}
-            className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-full bg-[var(--ss-i-900)] text-white text-xs font-semibold hover:bg-black transition-colors shadow-[0_8px_24px_rgba(15,17,21,.18)]"
+            className="inline-flex items-center gap-1.5 px-3 py-2 sm:px-4 sm:py-2.5 rounded-full bg-[var(--ss-i-900)] text-white text-xs font-semibold hover:bg-black transition-colors shadow-[0_8px_24px_rgba(15,17,21,.18)] shrink-0"
           >
             <Brain size={13} />
-            Knowledge dashboard
+            <span className="hidden sm:inline">Knowledge dashboard</span>
+            <span className="sm:hidden">Knowledge</span>
           </Link>
         </div>
 
@@ -331,7 +336,7 @@ export default function StudentSessionPage({ params }: { params: Promise<PagePar
             <button
               onClick={handleAutoFill}
               disabled={autoFilling || selectedIds.size === 0}
-              className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-2xl border border-dashed border-[var(--ss-o-300)] bg-[var(--ss-o-50)] text-[var(--ss-o-700)] text-sm font-semibold hover:bg-[var(--ss-o-100)] hover:border-[var(--ss-o-400)] disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+              className="w-full flex flex-wrap items-center justify-center gap-x-2 gap-y-1 px-4 py-3 rounded-2xl border border-dashed border-[var(--ss-o-300)] bg-[var(--ss-o-50)] text-[var(--ss-o-700)] text-sm font-semibold hover:bg-[var(--ss-o-100)] hover:border-[var(--ss-o-400)] disabled:opacity-50 disabled:cursor-not-allowed transition-all"
             >
               {autoFilling ? (
                 <>
@@ -342,7 +347,7 @@ export default function StudentSessionPage({ params }: { params: Promise<PagePar
                 <>
                   <Wand2 size={15} />
                   Auto-fill from selected sessions
-                  <span className="text-[var(--ss-o-500)]/70 font-normal">— review before generating</span>
+                  <span className="hidden sm:inline text-[var(--ss-o-500)]/70 font-normal">— review before generating</span>
                 </>
               )}
             </button>
@@ -406,8 +411,8 @@ export default function StudentSessionPage({ params }: { params: Promise<PagePar
           </div>
         </Section>
 
-        {/* ── Generate / Open existing buttons ────────────────────────────────── */}
-        <div className="sticky bottom-6 mt-8 space-y-2">
+        {/* ── Generate / Open existing buttons ─── */}
+        <div className="mt-8 space-y-2">
           {existingReport && (
             <button
               onClick={() => router.push(`/ptm/${existingReport.id}`)}
@@ -431,7 +436,7 @@ export default function StudentSessionPage({ params }: { params: Promise<PagePar
           <button
             onClick={handleGenerate}
             disabled={selectedIds.size === 0}
-            className="w-full flex items-center justify-center gap-2.5 py-4 rounded-2xl bg-[var(--ss-o-500)] text-white font-bold text-base shadow-[var(--ss-shadow-brand)] hover:bg-[var(--ss-o-600)] disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+            className="w-full flex flex-wrap items-center justify-center gap-x-2.5 gap-y-1 py-4 px-4 rounded-2xl bg-[var(--ss-o-500)] text-white font-bold text-sm sm:text-base shadow-[var(--ss-shadow-brand)] hover:bg-[var(--ss-o-600)] disabled:opacity-50 disabled:cursor-not-allowed transition-all"
             style={{ fontFamily: "var(--font-jakarta)" }}
           >
             {justStarted ? (
@@ -441,10 +446,12 @@ export default function StudentSessionPage({ params }: { params: Promise<PagePar
               </>
             ) : (
               <>
-                <Sparkles size={18} />
-                {existingReport ? "Generate new report" : "Generate Report"}
+                <span className="inline-flex items-center gap-2.5">
+                  <Sparkles size={18} />
+                  {existingReport ? "Generate new report" : "Generate Report"}
+                </span>
                 {selectedIds.size > 0 && (
-                  <span className="ml-1 text-white/70 font-normal text-sm">
+                  <span className="text-white/70 font-normal text-xs sm:text-sm">
                     from {selectedIds.size} session{selectedIds.size !== 1 ? "s" : ""}
                   </span>
                 )}
@@ -481,18 +488,18 @@ function Section({
 }) {
   return (
     <div className="mb-8">
-      <div className="flex items-center gap-3 mb-3">
-        <div className="w-7 h-7 rounded-full bg-[var(--ss-o-500)] flex items-center justify-center shrink-0">
+      <div className="flex items-start gap-3 mb-3">
+        <div className="w-7 h-7 rounded-full bg-[var(--ss-o-500)] flex items-center justify-center shrink-0 mt-0.5">
           <span className="text-white text-xs font-bold">{step}</span>
         </div>
-        <div>
+        <div className="min-w-0 flex-1">
           <h2 className="text-base font-bold text-[var(--ss-i-900)]" style={{ fontFamily: "var(--font-jakarta)" }}>
             {title}
           </h2>
           <p className="text-xs text-[var(--ss-i-400)]">{description}</p>
         </div>
       </div>
-      <div className="ml-10">{children}</div>
+      <div className="ml-0 sm:ml-10">{children}</div>
     </div>
   );
 }

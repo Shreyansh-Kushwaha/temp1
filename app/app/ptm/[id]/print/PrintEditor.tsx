@@ -275,6 +275,34 @@ export default function PrintEditor({ id, initialReport }: Props) {
         .page-table > tfoot { display: table-footer-group; }
         .page-table td { padding: 0; vertical-align: top; }
 
+        /* ─── Mobile: shrink preview, move toolbar out of the way ─── */
+        @media (max-width: 768px) {
+          .page-wrap {
+            max-width: 100%;
+            margin: 12px auto 96px;
+          }
+          .report-container {
+            padding: 20px 18px;
+            max-width: 100%;
+          }
+          .pdf-toolbar {
+            top: auto !important;
+            right: 12px !important;
+            left: 12px !important;
+            bottom: 12px !important;
+            justify-content: center;
+            flex-wrap: wrap;
+            row-gap: 6px !important;
+          }
+          .pdf-error-toast {
+            top: auto !important;
+            right: 12px !important;
+            left: 12px !important;
+            bottom: 80px !important;
+            max-width: none !important;
+          }
+        }
+
         @media print {
           body { background: white !important; margin: 0 !important; }
           .no-print { display: none !important; }
@@ -334,7 +362,7 @@ export default function PrintEditor({ id, initialReport }: Props) {
       `}</style>
 
       {/* Floating toolbar — hidden on print */}
-      <div className="no-print" style={{
+      <div className="no-print pdf-toolbar" style={{
         position: "fixed", top: 16, right: 16, zIndex: 50,
         display: "flex", alignItems: "center", gap: 8,
         background: "white",
@@ -415,7 +443,7 @@ export default function PrintEditor({ id, initialReport }: Props) {
 
       {/* Toasts */}
       {(saveError || downloadError) && (
-        <div className="no-print" style={{
+        <div className="no-print pdf-error-toast" style={{
           position: "fixed", top: 72, right: 16, zIndex: 50,
           background: "#FFEBEE", color: "#C62828",
           border: "1px solid #FFCDD2",
