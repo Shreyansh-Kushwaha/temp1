@@ -106,6 +106,49 @@ def _tone_dict(tone: ToneBody | None) -> dict | None:
     return out or None
 
 
+async def _resolve_student_identity(
+    student_id: str,
+    month: str,
+    *,
+    student_name: str | None = None,
+    subject: str | None = None,
+    teacher_name: str | None = None,
+) -> tuple[str, str, str]:
+    """Return (student_name, subject, teacher_name) — preferring the caller's
+    values, falling back to Wise via student_id+month when any are missing.
+
+    Frontends sometimes lose the URL query-string hints (refresh, bookmark,
+    direct link), causing requests to land here with empty strings. Without
+    this fallback those values get persisted blank into ptm_reports and the
+    listing page renders empty cells. wise_service's placeholders
+    ("Student {id}", "Unknown Teacher", "General") are filtered out so we
+    don't replace one bad value with another.
+    """
+    sn = (student_name or "").strip()
+    sj = (subject or "").strip()
+    tn = (teacher_name or "").strip()
+    if sn and sj and tn:
+        return sn, sj, tn
+    try:
+        wise_data = await wise_service.get_student_month_data(student_id, month)
+    except Exception as e:
+        logger.warning("identity fallback: wise lookup failed for %s: %s", student_id, e)
+        return sn, sj, tn
+    if not wise_data:
+        return sn, sj, tn
+
+    w_name = (wise_data.get("name") or "").strip()
+    if not sn and w_name and not w_name.startswith("Student "):
+        sn = w_name
+    w_subject = (wise_data.get("subject") or "").strip()
+    if not sj and w_subject and w_subject.lower() != "general":
+        sj = w_subject
+    w_teacher = (wise_data.get("teacher_name") or "").strip()
+    if not tn and w_teacher and w_teacher != "Unknown Teacher":
+        tn = w_teacher
+    return sn, sj, tn
+
+
 class GenerateFromSessionsBody(BaseModel):
     student_id: str
     student_name: str
@@ -446,6 +489,7 @@ async def list_delivery_log(
 async def auto_fill_form(body: AutoFillFormBody):
     """Suggest teacher-form values from selected sessions, via GPT-5.1.
     The teacher reviews/edits the result before generating the report."""
+    from datetime import date as _date
     all_sessions = await wise_service.get_student_sessions(body.student_id)
     selected = [s for s in all_sessions if s["session_id"] in body.session_ids]
     if not selected:
@@ -457,10 +501,20 @@ async def auto_fill_form(body: AutoFillFormBody):
             "improvement_areas": "",
             "next_month_goals": [],
         }
-    return await form_assist_service.auto_fill(
-        selected,
+    # Fallback lookup when the frontend didn't pass student_name/subject —
+    # earliest selected session's month is a good probe.
+    dates = sorted([s["date"] for s in selected if s.get("date")])
+    probe_month = f"{dates[0][:7]}-01" if dates else f"{_date.today().year}-{_date.today().month:02d}-01"
+    resolved_name, resolved_subject, _ = await _resolve_student_identity(
+        body.student_id,
+        probe_month,
         student_name=body.student_name,
         subject=body.subject,
+    )
+    return await form_assist_service.auto_fill(
+        selected,
+        student_name=resolved_name or None,
+        subject=resolved_subject or None,
     )
 
 
@@ -482,12 +536,21 @@ async def generate_report_from_sessions(body: GenerateFromSessionsBody, backgrou
         month = f"{today.year}-{today.month:02d}-01"
         reporting_period = month
 
+    # Backfill identity from Wise when the request body lost the URL hints.
+    student_name, subject, teacher_name = await _resolve_student_identity(
+        body.student_id,
+        month,
+        student_name=body.student_name,
+        subject=body.subject,
+        teacher_name=body.teacher_name,
+    )
+
     wise_data = {
-        "name": body.student_name,
+        "name": student_name,
         "grade": "",
-        "teacher_name": body.teacher_name,
+        "teacher_name": teacher_name,
         "teacher_id": "",
-        "subject": body.subject,
+        "subject": subject,
         "month": reporting_period,
         "total_classes": len(selected),
         "attendance_pct": 100,
@@ -533,11 +596,11 @@ async def generate_report_from_sessions(body: GenerateFromSessionsBody, backgrou
             detail={
                 "code": "duplicate_report",
                 "message": (
-                    f"A report for {body.student_name} already exists for {month}. "
+                    f"A report for {student_name or 'this student'} already exists for {month}. "
                     f"Open the existing report or delete it before generating a new one."
                 ),
                 "existing_report_id": existing[0],
-                "student_name": body.student_name,
+                "student_name": student_name,
                 "reporting_month": month,
             },
         )
@@ -557,7 +620,7 @@ async def generate_report_from_sessions(body: GenerateFromSessionsBody, backgrou
                     status, draft_content, regeneration_count, created_at, updated_at,
                     overall_confidence, tone_warmth, tone_detail)
                    VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, 0, ?, ?, ?, ?, ?)""",
-                [report_id, body.student_id, "", body.student_name, body.subject,
+                [report_id, body.student_id, "", student_name, subject,
                  month, json.dumps(draft), ts, ts, overall,
                  (tone or {}).get("warmth", "balanced"), (tone or {}).get("detail", "balanced")],
             )
@@ -590,11 +653,11 @@ async def generate_report_from_sessions(body: GenerateFromSessionsBody, backgrou
                     detail={
                         "code": "duplicate_report",
                         "message": (
-                            f"A report for {body.student_name} was just created by "
+                            f"A report for {student_name or 'this student'} was just created by "
                             f"another request for {month}. Open the existing one."
                         ),
                         "existing_report_id": existing_id,
-                        "student_name": body.student_name,
+                        "student_name": student_name,
                         "reporting_month": month,
                     },
                 )
@@ -609,6 +672,72 @@ async def generate_report_from_sessions(body: GenerateFromSessionsBody, backgrou
         await db.commit()
         background_tasks.add_task(pdf_service.generate_and_store_pdf, report_id, 1)
         return {"report_id": report_id, "status": "pending", "draft_content": draft}
+    finally:
+        await db.close()
+
+
+@router.post("/reports/backfill-identity")
+async def backfill_report_identity():
+    """One-shot admin sweep: find ptm_reports rows with blank student_name or
+    subject (caused by the historical bug where the frontend lost URL hints),
+    look the values up from Wise using (student_id, reporting_month), and
+    write them back. Idempotent — re-running on already-clean rows is a no-op.
+    """
+    db = await get_db()
+    try:
+        async with db.execute(
+            """SELECT id, student_id, reporting_month, student_name, subject
+               FROM ptm_reports
+               WHERE deleted_at IS NULL
+                 AND (student_name IS NULL OR student_name = ''
+                      OR subject IS NULL OR subject = '')"""
+        ) as cur:
+            rows = [dict(r) for r in await cur.fetchall()]
+
+        fixed = 0
+        skipped_no_wise_data = 0
+        skipped_already_clean = 0
+        failed: list[dict] = []
+        for r in rows:
+            current_name = (r.get("student_name") or "").strip()
+            current_subject = (r.get("subject") or "").strip()
+            resolved_name, resolved_subject, _ = await _resolve_student_identity(
+                r["student_id"],
+                r["reporting_month"],
+                student_name=current_name,
+                subject=current_subject,
+                teacher_name=None,
+            )
+            if resolved_name == current_name and resolved_subject == current_subject:
+                # Either Wise had no data, or what it returned matched what we
+                # already had (after placeholder filtering).
+                if not resolved_name and not resolved_subject:
+                    skipped_no_wise_data += 1
+                else:
+                    skipped_already_clean += 1
+                continue
+            try:
+                await db.execute(
+                    """UPDATE ptm_reports
+                       SET student_name = ?, subject = ?, updated_at = ?
+                       WHERE id = ?""",
+                    [resolved_name, resolved_subject, now_iso(), r["id"]],
+                )
+                fixed += 1
+            except Exception as e:
+                failed.append({"id": r["id"], "error": str(e)})
+        await db.commit()
+        logger.info(
+            "backfill_report_identity: scanned=%d fixed=%d skipped_no_wise=%d skipped_clean=%d failed=%d",
+            len(rows), fixed, skipped_no_wise_data, skipped_already_clean, len(failed),
+        )
+        return {
+            "scanned": len(rows),
+            "fixed": fixed,
+            "skipped_no_wise_data": skipped_no_wise_data,
+            "skipped_already_clean": skipped_already_clean,
+            "failed": failed,
+        }
     finally:
         await db.close()
 
