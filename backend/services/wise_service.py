@@ -179,12 +179,28 @@ async def _mongo_get_student_month_data(student_id: str, month: str) -> dict | N
             total_classes = attended
         no_shows = max(0, total_classes - attended)
 
-        # Subject from the batch code stored in wise_status_sessions.subject
-        status_doc = await status_col.find_one(
-            {"studentName": student_name}, {"subject": 1}
-        )
-        if status_doc:
-            subject = _extract_subject_from_batch_code(str(status_doc.get("subject") or ""))
+        # Subject from the batch code stored in wise_status_sessions.subject.
+        # Scope by sessionId (links to sessions.wise_session_id) so we only
+        # read batches the student actually attended this month. Querying by
+        # studentName alone leaks subjects from other teachers' batches the
+        # student attends in parallel (e.g. English-with-Shivanshi students
+        # who also take Chemistry elsewhere appearing as "Chemistry").
+        attended_session_ids = [
+            doc.get("wise_session_id")
+            for doc in attended_docs
+            if doc.get("wise_session_id")
+        ]
+        if attended_session_ids:
+            async for sd in status_col.find(
+                {"sessionId": {"$in": attended_session_ids}},
+                {"subject": 1},
+            ):
+                candidate = _extract_subject_from_batch_code(
+                    str(sd.get("subject") or "")
+                )
+                if candidate:
+                    subject = candidate
+                    break
 
     if total_classes == 0 and attended == 0:
         logger.warning(f"No session data for student_id={student_id} month={month}")
@@ -234,6 +250,7 @@ async def _mongo_list_students_for_teacher(teacher_name: str) -> list[dict]:
                 "student_name": {"$first": "$student_name"},
                 "last_session": {"$max": "$wise_event_received_at"},
                 "session_count": {"$sum": 1},
+                "wise_session_ids": {"$addToSet": "$wise_session_id"},
             }
         },
         {"$match": {"_id": {"$nin": [None, ""]}}},
@@ -242,35 +259,45 @@ async def _mongo_list_students_for_teacher(teacher_name: str) -> list[dict]:
 
     grouped = [doc async for doc in sessions_col.aggregate(pipeline)]
 
-    # Batch-fetch subjects for all students in one query (avoids N+1 round-trips
-    # to status_col, which is what made teacher selection take ~30s on Render).
-    names = sorted({
-        (str(d.get("student_name") or "").strip())
+    # Batch-fetch subjects via wise_status_sessions.sessionId — scoped to the
+    # sessions this teacher actually taught. Looking up by studentName alone
+    # leaks subjects from other teachers' batches the student also attends
+    # (e.g. an English student of Shivanshi's also taking Chemistry elsewhere
+    # would surface as "Chemistry" on her roster).
+    all_session_ids = [
+        sid
         for d in grouped
-        if str(d.get("student_name") or "").strip()
-    })
-    subject_by_name: dict[str, str] = {}
-    if names:
+        for sid in (d.get("wise_session_ids") or [])
+        if sid
+    ]
+    subject_by_session_id: dict[str, str] = {}
+    if all_session_ids:
         async for sd in status_col.find(
-            {"studentName": {"$in": names}},
-            {"studentName": 1, "subject": 1},
+            {"sessionId": {"$in": all_session_ids}},
+            {"sessionId": 1, "subject": 1},
         ):
-            sname = str(sd.get("studentName") or "").strip()
-            if not sname or sname in subject_by_name:
+            sid = str(sd.get("sessionId") or "").strip()
+            if not sid or sid in subject_by_session_id:
                 continue
-            subject_by_name[sname] = _extract_subject_from_batch_code(
-                str(sd.get("subject") or "")
-            )
+            subj = _extract_subject_from_batch_code(str(sd.get("subject") or ""))
+            if subj:
+                subject_by_session_id[sid] = subj
 
     students = []
     for doc in grouped:
         student_id = str(doc["_id"]).strip()
         student_name = str(doc.get("student_name") or "").strip()
         last_session = doc.get("last_session")
+        subject = ""
+        for sid in doc.get("wise_session_ids") or []:
+            sid_s = str(sid or "").strip()
+            if sid_s and subject_by_session_id.get(sid_s):
+                subject = subject_by_session_id[sid_s]
+                break
         students.append({
             "student_id": student_id,
             "student_name": student_name or f"Student {student_id}",
-            "subject": subject_by_name.get(student_name) or "General",
+            "subject": subject or "General",
             "session_count": doc.get("session_count", 0),
             "last_session": last_session.isoformat() if last_session else None,
         })
@@ -328,26 +355,49 @@ async def _mongo_list_active_students(month: str) -> list[dict]:
                 "_id": "$student_id",
                 "student_name": {"$first": "$student_name"},
                 "teacher_name": {"$first": "$teacher_name"},
+                "wise_session_ids": {"$addToSet": "$wise_session_id"},
             }
         },
         {"$match": {"_id": {"$nin": [None, ""]}}},
     ]
 
-    cursor = sessions_col.aggregate(pipeline)
+    grouped = [doc async for doc in sessions_col.aggregate(pipeline)]
+
+    # Batch subject lookup via wise_status_sessions.sessionId — scope to the
+    # sessions the student actually attended this month. Querying by
+    # studentName alone leaks subjects from other teachers' batches the
+    # student also attends in parallel.
+    all_session_ids = [
+        sid
+        for d in grouped
+        for sid in (d.get("wise_session_ids") or [])
+        if sid
+    ]
+    subject_by_session_id: dict[str, str] = {}
+    if all_session_ids:
+        async for sd in status_col.find(
+            {"sessionId": {"$in": all_session_ids}},
+            {"sessionId": 1, "subject": 1},
+        ):
+            sid = str(sd.get("sessionId") or "").strip()
+            if not sid or sid in subject_by_session_id:
+                continue
+            subj = _extract_subject_from_batch_code(str(sd.get("subject") or ""))
+            if subj:
+                subject_by_session_id[sid] = subj
+
     students = []
-    async for doc in cursor:
+    for doc in grouped:
         student_id = str(doc["_id"]).strip()
         student_name = str(doc.get("student_name") or "").strip()
         teacher_name = str(doc.get("teacher_name") or "Unknown Teacher").strip()
 
-        # Get subject from wise_status_sessions by student name
         subject = ""
-        if student_name:
-            status_doc = await status_col.find_one(
-                {"studentName": student_name}, {"subject": 1}
-            )
-            if status_doc:
-                subject = _extract_subject_from_batch_code(str(status_doc.get("subject") or ""))
+        for sid in doc.get("wise_session_ids") or []:
+            sid_s = str(sid or "").strip()
+            if sid_s and subject_by_session_id.get(sid_s):
+                subject = subject_by_session_id[sid_s]
+                break
 
         students.append(
             {
