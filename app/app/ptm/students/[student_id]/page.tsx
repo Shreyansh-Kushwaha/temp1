@@ -411,16 +411,20 @@ export default function StudentSessionPage({ params }: { params: Promise<PagePar
           {existingReport && (
             <button
               onClick={() => router.push(`/ptm/${existingReport.id}`)}
-              className="w-full flex items-center justify-center gap-2.5 py-4 rounded-2xl bg-[var(--ss-i-900)] text-white font-bold text-base shadow-[0_8px_24px_rgba(15,17,21,.18)] hover:bg-black transition-all"
+              className="w-full flex flex-wrap items-center justify-center gap-x-2.5 gap-y-1 py-4 px-4 rounded-2xl bg-[var(--ss-i-900)] text-white font-bold text-base shadow-[0_8px_24px_rgba(15,17,21,.18)] hover:bg-black transition-all"
               style={{ fontFamily: "var(--font-jakarta)" }}
             >
-              <FileText size={18} />
-              Open existing report
-              <span className="ml-1 text-white/70 font-normal text-sm">
-                · {new Date(existingReport.reporting_month).toLocaleDateString("en-IN", { month: "long", year: "numeric" })}
+              <span className="inline-flex items-center gap-2.5">
+                <FileText size={18} />
+                Open existing report
+                <ChevronRight size={16} className="hidden sm:inline" />
+              </span>
+              <span className="text-white/70 font-normal text-xs sm:text-sm w-full sm:w-auto sm:ml-1 text-center sm:text-left">
+                <span className="hidden sm:inline">· </span>
+                {new Date(existingReport.reporting_month).toLocaleDateString("en-IN", { month: "long", year: "numeric" })}
                 {" · "}{existingReport.status}
               </span>
-              <ChevronRight size={16} />
+              <ChevronRight size={16} className="sm:hidden" />
             </button>
           )}
 

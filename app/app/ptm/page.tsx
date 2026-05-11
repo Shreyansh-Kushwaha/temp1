@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { ChevronDown, BookOpen, Calendar, Users, AlertCircle, RefreshCw, Search } from "lucide-react";
+import { ChevronDown, BookOpen, Calendar, Users, AlertCircle, RefreshCw, Search, Loader2 } from "lucide-react";
 
 import Navbar from "@/app/components/Navbar";
 import { api, type StudentSummary } from "@/app/lib/api";
@@ -180,21 +180,24 @@ export default function GeneratePage() {
 
             {/* Skeletons */}
             {loadingStudents && (
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                {Array.from({ length: 6 }).map((_, i) => (
-                  <div key={i} className="bg-white rounded-2xl border border-[var(--ss-i-200)] p-5 shadow-[var(--ss-shadow)] animate-pulse">
-                    <div className="flex items-center gap-3 mb-4">
-                      <div className="w-10 h-10 rounded-full bg-[var(--ss-i-100)]" />
-                      <div className="flex-1">
-                        <div className="h-4 w-28 rounded bg-[var(--ss-i-100)] mb-1.5" />
-                        <div className="h-3 w-16 rounded bg-[var(--ss-i-100)]" />
+              <>
+                <FetchingBanner teacher={selectedTeacher} />
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {Array.from({ length: 6 }).map((_, i) => (
+                    <div key={i} className="bg-white rounded-2xl border border-[var(--ss-i-200)] p-5 shadow-[var(--ss-shadow)] animate-pulse">
+                      <div className="flex items-center gap-3 mb-4">
+                        <div className="w-10 h-10 rounded-full bg-[var(--ss-i-100)]" />
+                        <div className="flex-1">
+                          <div className="h-4 w-28 rounded bg-[var(--ss-i-100)] mb-1.5" />
+                          <div className="h-3 w-16 rounded bg-[var(--ss-i-100)]" />
+                        </div>
                       </div>
+                      <div className="h-3 w-20 rounded bg-[var(--ss-i-100)] mb-2" />
+                      <div className="h-8 w-full rounded-full bg-[var(--ss-i-100)] mt-4" />
                     </div>
-                    <div className="h-3 w-20 rounded bg-[var(--ss-i-100)] mb-2" />
-                    <div className="h-8 w-full rounded-full bg-[var(--ss-i-100)] mt-4" />
-                  </div>
-                ))}
-              </div>
+                  ))}
+                </div>
+              </>
             )}
 
             {/* Cards */}
@@ -227,6 +230,39 @@ export default function GeneratePage() {
           </>
         )}
       </main>
+    </div>
+  );
+}
+
+function FetchingBanner({ teacher }: { teacher: string }) {
+  const messages = [
+    `Fetching ${teacher}'s students…`,
+    "Loading class details…",
+    "Pulling recent sessions…",
+    "Almost there…",
+  ];
+  const [idx, setIdx] = useState(0);
+
+  useEffect(() => {
+    const id = setInterval(() => setIdx((i) => (i + 1) % messages.length), 1500);
+    return () => clearInterval(id);
+  }, [messages.length]);
+
+  return (
+    <div className="mb-5 flex items-center gap-3 px-4 py-3 rounded-2xl bg-[var(--ss-o-50)] border border-[var(--ss-o-200)] shadow-[var(--ss-shadow)]">
+      <Loader2 size={16} className="text-[var(--ss-o-500)] animate-spin shrink-0" />
+      <p
+        key={idx}
+        className="text-sm font-semibold text-[var(--ss-o-700)] animate-[fadeIn_400ms_ease-out]"
+        style={{ fontFamily: "var(--font-jakarta)" }}
+      >
+        {messages[idx]}
+      </p>
+      <span className="ml-auto flex gap-1">
+        <span className="w-1.5 h-1.5 rounded-full bg-[var(--ss-o-400)] animate-bounce" style={{ animationDelay: "0ms" }} />
+        <span className="w-1.5 h-1.5 rounded-full bg-[var(--ss-o-400)] animate-bounce" style={{ animationDelay: "150ms" }} />
+        <span className="w-1.5 h-1.5 rounded-full bg-[var(--ss-o-400)] animate-bounce" style={{ animationDelay: "300ms" }} />
+      </span>
     </div>
   );
 }

@@ -150,7 +150,7 @@ export default function LoginPage() {
       {/* ── Main split ──────────────────────────────────────────── */}
       <main className="relative z-10 grid lg:grid-cols-[1.15fr_0.85fr] items-start px-6 md:px-10 pt-6 lg:pt-8 pb-10 gap-8 lg:gap-6 max-w-[1500px] mx-auto">
         {/* ── LEFT: hero ──────────────────────────────────────── */}
-        <section className="relative min-h-[480px] lg:min-h-[560px]">
+        <section className="relative lg:min-h-[560px]">
           <motion.div
             initial={{ opacity: 0, y: 22 }}
             animate={{ opacity: 1, y: 0 }}
@@ -163,7 +163,7 @@ export default function LoginPage() {
             </span>
 
             <h1
-              className="text-5xl md:text-6xl lg:text-7xl font-extrabold leading-[1.02] tracking-tight"
+              className="text-4xl sm:text-5xl md:text-6xl lg:text-7xl font-extrabold leading-[1.05] sm:leading-[1.02] tracking-tight break-words"
               style={{
                 fontFamily: "var(--font-jakarta)",
                 letterSpacing: "-0.035em",

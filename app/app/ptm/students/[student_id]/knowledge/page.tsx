@@ -112,12 +112,12 @@ export default function KnowledgePage({
               )}
             </p>
             <h1
-              className="text-3xl md:text-4xl font-extrabold flex items-center gap-2.5"
+              className="text-2xl sm:text-3xl md:text-4xl font-extrabold flex flex-wrap items-center gap-x-2.5 gap-y-1 break-words"
               style={{ fontFamily: "var(--font-jakarta)", letterSpacing: "-0.025em" }}
             >
-              <Brain size={26} className="text-[var(--ss-o-400)]" />
-              {data?.student_name ?? "Student"}{" "}
-              <span className="text-white/40 font-bold">·</span>{" "}
+              <Brain size={26} className="text-[var(--ss-o-400)] shrink-0" />
+              <span>{data?.student_name ?? "Student"}</span>
+              <span className="text-white/40 font-bold">·</span>
               <span className="text-white/70">{data?.subject ?? "—"}</span>
             </h1>
             <p className="text-sm text-white/50 mt-2 max-w-xl">

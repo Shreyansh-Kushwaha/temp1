@@ -561,7 +561,7 @@ export default function LandingPage() {
                 </div>
 
                 <h1
-                  className="text-5xl md:text-6xl font-extrabold leading-tight mb-6"
+                  className="text-4xl sm:text-5xl md:text-6xl font-extrabold leading-tight mb-6"
                   style={{ fontFamily: "var(--font-jakarta)", letterSpacing: "-0.04em", color: "#ffffff" }}
                 >
                   PTM reports,
@@ -834,10 +834,10 @@ export default function LandingPage() {
         {/* ══════════════════════════════════════
             FINAL CTA
         ══════════════════════════════════════ */}
-        <section style={{ background: "#FFF8F2", padding: "80px 24px", borderTop: "1px solid #E5E8EE" }}>
+        <section className="px-4 sm:px-6 py-16 sm:py-20" style={{ background: "#FFF8F2", borderTop: "1px solid #E5E8EE" }}>
           <div
             ref={ctaReveal.ref}
-            className="max-w-4xl mx-auto rounded-3xl px-10 py-16 text-center relative overflow-hidden"
+            className="max-w-4xl mx-auto rounded-3xl px-6 sm:px-10 py-12 sm:py-16 text-center relative overflow-hidden"
             style={{
               position: "relative",
               zIndex: 11,
@@ -1080,9 +1080,9 @@ function FAQAccordion({ items, inView }: { items: typeof FAQS; inView: boolean }
               </span>
             </button>
             <div style={{
-              maxHeight: isOpen ? "200px" : "0",
+              maxHeight: isOpen ? "800px" : "0",
               overflow: "hidden",
-              transition: "max-height 0.35s cubic-bezier(0.4, 0, 0.2, 1)",
+              transition: "max-height 0.45s cubic-bezier(0.4, 0, 0.2, 1)",
             }}>
               <p className="px-6 pb-5 text-sm leading-relaxed" style={{ color: "#5B6271" }}>{item.a}</p>
             </div>

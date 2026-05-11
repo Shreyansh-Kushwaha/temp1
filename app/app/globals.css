@@ -289,6 +289,12 @@ button:disabled {
   animation: pulse-soft 2.6s ease-in-out infinite;
 }
 
+/* ─── Fade-in (used by loading banners that swap text) ─── */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(2px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
 /* ─── Motion preference ─── */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
