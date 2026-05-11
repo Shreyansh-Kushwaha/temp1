@@ -460,10 +460,15 @@ export const api = {
     generate(
       student_id: string,
       mode: "create" | "update" = "create",
+      hints?: { student_name?: string; subject?: string },
     ): Promise<KnowledgeSummary> {
       return apiFetch(`/api/ptm/students/${student_id}/knowledge-summary/generate`, {
         method: "POST",
-        body: JSON.stringify({ mode }),
+        body: JSON.stringify({
+          mode,
+          ...(hints?.student_name ? { student_name: hints.student_name } : {}),
+          ...(hints?.subject ? { subject: hints.subject } : {}),
+        }),
       });
     },
 

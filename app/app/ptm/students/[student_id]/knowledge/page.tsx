@@ -2,6 +2,7 @@
 
 import { use, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { motion } from "framer-motion";
 import {
   ArrowLeft,
@@ -34,12 +35,21 @@ export default function KnowledgePage({
   params: Promise<{ student_id: string }>;
 }) {
   const { student_id } = use(params);
+  const searchParams = useSearchParams();
+  // Hints passed from the parent student page so the dashboard can show the
+  // real name/subject immediately AND seed the AI generation call when no PTM
+  // report has been created yet.
+  const hintedName = searchParams.get("student_name") ?? "";
+  const hintedSubject = searchParams.get("subject") ?? "";
   const [data, setData] = useState<KnowledgeSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<StatusFilter>("all");
   const [generating, setGenerating] = useState(false);
   const [genError, setGenError] = useState<string | null>(null);
+
+  const displayName = data?.student_name || hintedName || "Student";
+  const displaySubject = data?.subject || hintedSubject || "—";
 
   useEffect(() => {
     let cancelled = false;
@@ -58,7 +68,10 @@ export default function KnowledgePage({
     setGenerating(true);
     setGenError(null);
     try {
-      const next = await api.knowledge.generate(student_id, mode);
+      const next = await api.knowledge.generate(student_id, mode, {
+        student_name: hintedName || data?.student_name || undefined,
+        subject: hintedSubject || data?.subject || undefined,
+      });
       setData(next);
     } catch (e) {
       setGenError(e instanceof Error ? e.message : "AI generation failed");
@@ -112,13 +125,13 @@ export default function KnowledgePage({
               )}
             </p>
             <h1
-              className="text-2xl sm:text-3xl md:text-4xl font-extrabold flex flex-wrap items-center gap-x-2.5 gap-y-1 break-words"
+              className="text-2xl sm:text-3xl md:text-4xl font-extrabold text-white flex flex-wrap items-center gap-x-2.5 gap-y-1 break-words"
               style={{ fontFamily: "var(--font-jakarta)", letterSpacing: "-0.025em" }}
             >
               <Brain size={26} className="text-[var(--ss-o-400)] shrink-0" />
-              <span>{data?.student_name ?? "Student"}</span>
+              <span className="text-white">{displayName}</span>
               <span className="text-white/40 font-bold">·</span>
-              <span className="text-white/70">{data?.subject ?? "—"}</span>
+              <span className="text-white/70">{displaySubject}</span>
             </h1>
             <p className="text-sm text-white/50 mt-2 max-w-xl">
               Topics covered, mastery progression, weak concepts, attendance trend, and learning velocity —

@@ -239,7 +239,13 @@ export default function StudentSessionPage({ params }: { params: Promise<PagePar
             </div>
           </div>
           <Link
-            href={`/ptm/students/${student_id}/knowledge`}
+            href={{
+              pathname: `/ptm/students/${student_id}/knowledge`,
+              query: {
+                ...(studentName ? { student_name: studentName } : {}),
+                ...(subject ? { subject } : {}),
+              },
+            }}
             className="inline-flex items-center gap-1.5 px-3 py-2 sm:px-4 sm:py-2.5 rounded-full bg-[var(--ss-i-900)] text-white text-xs font-semibold hover:bg-black transition-colors shadow-[0_8px_24px_rgba(15,17,21,.18)] shrink-0"
           >
             <Brain size={13} />

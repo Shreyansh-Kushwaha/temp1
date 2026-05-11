@@ -1766,6 +1766,10 @@ async def _saved_knowledge_for(student_id: str) -> dict | None:
 
 class GenerateKnowledgeBody(BaseModel):
     mode: str = "create"  # "create" | "update"
+    # Frontend hints — used when no PTM report exists yet so the snapshot
+    # doesn't end up with a NULL student_name/subject.
+    student_name: str | None = None
+    subject: str | None = None
 
 
 @router.post("/students/{student_id}/knowledge-summary/generate")
@@ -1812,6 +1816,11 @@ async def knowledge_summary_generate(student_id: str, body: GenerateKnowledgeBod
     prior = await _saved_knowledge_for(student_id) if mode == "update" else None
     student_name = student_name or (prior or {}).get("student_name")
     subject = subject or (prior or {}).get("subject")
+    # Last-resort: frontend hints from the URL. Lets the dashboard generate
+    # for a student who has no PTM reports yet without bottoming out on
+    # student_name=NULL.
+    student_name = student_name or body.student_name
+    subject = subject or body.subject
 
     snapshot = await knowledge_service.generate(
         student_id=student_id,
