@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Navbar from "@/app/components/Navbar";
 import { api } from "@/app/lib/api";
+import { getAuth } from "@/app/lib/auth";
 import { Bot, CheckCircle2, AlertCircle, Play, Loader2 } from "lucide-react";
 
 interface TeacherRow {
@@ -29,6 +30,17 @@ export default function AutomationPage() {
   const [running, setRunning] = useState(false);
   const [batchSize, setBatchSize] = useState(20);
   const [lastRun, setLastRun] = useState<RunResult | null>(null);
+
+  // Role scoping — teachers see only their own row and no admin controls.
+  const [scopedTeacher, setScopedTeacher] = useState<string | null>(null);
+  const isTeacherScoped = scopedTeacher !== null;
+
+  useEffect(() => {
+    const auth = getAuth();
+    if (auth?.role === "teacher" && auth.teacher_name) {
+      setScopedTeacher(auth.teacher_name);
+    }
+  }, []);
 
   async function load() {
     setError(null);
@@ -75,9 +87,13 @@ export default function AutomationPage() {
     }
   }
 
-  const enabledCount = teachers?.filter((t) => t.auto_generate_enabled).length ?? 0;
-  const totalCount = teachers?.length ?? 0;
-  const visibleTeachers = (teachers ?? []).filter((t) =>
+  // Teachers see only their own row; admins see the full list (with search).
+  const scopedTeachers = isTeacherScoped
+    ? (teachers ?? []).filter((t) => t.teacher_name === scopedTeacher)
+    : (teachers ?? []);
+  const enabledCount = scopedTeachers.filter((t) => t.auto_generate_enabled).length;
+  const totalCount = scopedTeachers.length;
+  const visibleTeachers = scopedTeachers.filter((t) =>
     !filter ? true : t.teacher_name.toLowerCase().includes(filter.toLowerCase())
   );
 
@@ -96,18 +112,27 @@ export default function AutomationPage() {
                 Report Automation
               </h1>
               <p className="text-sm text-[var(--ss-i-500)] mt-1 leading-relaxed">
-                Pick which teachers want their monthly reports auto-generated each day.
-                The n8n cron job hits <code className="text-xs bg-[var(--ss-i-100)] px-1.5 py-0.5 rounded">/api/ptm/auto-generate/run</code>{" "}
-                daily and processes a batch of opted-in students — defaults are used (balanced tone, no overrides).
+                {isTeacherScoped
+                  ? "Toggle this on to have your students' monthly reports auto-generated each day. Defaults are used (balanced tone, no overrides) — you can still review every draft in the approval queue before it goes out."
+                  : "Pick which teachers want their monthly reports auto-generated each day. The n8n cron job hits "}
+                {!isTeacherScoped && (
+                  <>
+                    <code className="text-xs bg-[var(--ss-i-100)] px-1.5 py-0.5 rounded">/api/ptm/auto-generate/run</code>{" "}
+                    daily and processes a batch of opted-in students — defaults are used (balanced tone, no overrides).
+                  </>
+                )}
               </p>
-              <p className="mt-3 text-xs text-[var(--ss-i-400)]">
-                <span className="font-semibold text-[var(--ss-i-700)]">{enabledCount}</span> of {totalCount} teachers opted in
-              </p>
+              {!isTeacherScoped && (
+                <p className="mt-3 text-xs text-[var(--ss-i-400)]">
+                  <span className="font-semibold text-[var(--ss-i-700)]">{enabledCount}</span> of {totalCount} teachers opted in
+                </p>
+              )}
             </div>
           </div>
         </div>
 
-        {/* Manual run */}
+        {/* Manual run — admin only. Teachers never trigger the org-wide batch. */}
+        {!isTeacherScoped && (
         <div className="bg-white rounded-2xl border border-[var(--ss-i-200)] shadow-[var(--ss-shadow)] p-5 md:p-6">
           <h2 className="text-sm font-bold text-[var(--ss-i-900)] mb-3" style={{ fontFamily: "var(--font-jakarta)" }}>
             Run a batch now
@@ -163,20 +188,23 @@ export default function AutomationPage() {
             </div>
           )}
         </div>
+        )}
 
         {/* Teacher list */}
         <div className="bg-white rounded-2xl border border-[var(--ss-i-200)] shadow-[var(--ss-shadow)] p-5 md:p-6">
           <div className="flex flex-col sm:flex-row sm:flex-wrap sm:items-center sm:justify-between gap-3 mb-4">
             <h2 className="text-sm font-bold text-[var(--ss-i-900)]" style={{ fontFamily: "var(--font-jakarta)" }}>
-              Teachers
+              {isTeacherScoped ? "Your auto-generate setting" : "Teachers"}
             </h2>
-            <input
-              type="text"
-              placeholder="Search teachers…"
-              value={filter}
-              onChange={(e) => setFilter(e.target.value)}
-              className="w-full sm:w-auto px-3 py-2 sm:py-1.5 rounded-full border border-[var(--ss-i-200)] text-xs text-[var(--ss-i-700)] placeholder:text-[var(--ss-i-400)] focus:outline-none focus:ring-2 focus:ring-[var(--ss-o-300)] min-h-[40px] sm:min-h-0"
-            />
+            {!isTeacherScoped && (
+              <input
+                type="text"
+                placeholder="Search teachers…"
+                value={filter}
+                onChange={(e) => setFilter(e.target.value)}
+                className="w-full sm:w-auto px-3 py-2 sm:py-1.5 rounded-full border border-[var(--ss-i-200)] text-xs text-[var(--ss-i-700)] placeholder:text-[var(--ss-i-400)] focus:outline-none focus:ring-2 focus:ring-[var(--ss-o-300)] min-h-[40px] sm:min-h-0"
+              />
+            )}
           </div>
 
           {error && (
@@ -193,7 +221,11 @@ export default function AutomationPage() {
               ))}
             </div>
           ) : visibleTeachers.length === 0 ? (
-            <p className="text-xs text-[var(--ss-i-400)] py-4 text-center">No teachers match.</p>
+            <p className="text-xs text-[var(--ss-i-400)] py-4 text-center">
+              {isTeacherScoped
+                ? "We couldn't find a settings row for your account yet — toggle it once and we'll create it."
+                : "No teachers match."}
+            </p>
           ) : (
             <ul className="divide-y divide-[var(--ss-i-100)]">
               {visibleTeachers.map((t) => (

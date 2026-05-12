@@ -220,26 +220,51 @@ async def list_issues_endpoint(
     type: str | None = None,
     severity: str | None = None,
     q: str | None = None,
+    teacher_name: str | None = None,
     limit: int = 200,
     offset: int = 0,
 ):
     """Support queue. Filter by status/type/severity, free-text search across
-    title/entity_name/description.
+    title/entity_name/description. When `teacher_name` is passed, only issues
+    tied to that teacher's reports/students are returned.
     """
     limit = max(1, min(int(limit or 200), 500))
     offset = max(0, int(offset or 0))
     entries, total = await issue_service.list_issues(
         status=status, type_=type, severity=severity, q=q,
+        teacher_name=teacher_name,
         limit=limit, offset=offset,
     )
 
     # Counters help the UI show category badges without a second round-trip.
+    # Scope them to the same teacher so the badges match what's visible.
     db = await get_db()
     try:
-        async with db.execute(
-            "SELECT type, status, COUNT(*) FROM ptm_issues GROUP BY type, status"
-        ) as cur:
-            grid = await cur.fetchall()
+        if teacher_name:
+            async with db.execute(
+                """SELECT type, status, COUNT(*) FROM ptm_issues
+                   WHERE (
+                     (entity_type='report' AND entity_id IN (
+                       SELECT id FROM ptm_reports
+                       WHERE deleted_at IS NULL
+                       AND (draft_content::jsonb)->'header'->>'teacher_name' = ?
+                     ))
+                     OR
+                     (entity_type='student' AND entity_id IN (
+                       SELECT DISTINCT student_id FROM ptm_reports
+                       WHERE deleted_at IS NULL
+                       AND (draft_content::jsonb)->'header'->>'teacher_name' = ?
+                     ))
+                   )
+                   GROUP BY type, status""",
+                [teacher_name, teacher_name],
+            ) as cur:
+                grid = await cur.fetchall()
+        else:
+            async with db.execute(
+                "SELECT type, status, COUNT(*) FROM ptm_issues GROUP BY type, status"
+            ) as cur:
+                grid = await cur.fetchall()
     finally:
         await db.close()
 
@@ -402,6 +427,7 @@ async def list_delivery_log(
     channel: str | None = None,
     q: str | None = None,
     since: str | None = None,
+    teacher_name: str | None = None,
     limit: int = 100,
     offset: int = 0,
 ):
@@ -434,6 +460,11 @@ async def list_delivery_log(
             "(r.student_name ILIKE ? OR d.recipient ILIKE ? OR d.intended_recipient ILIKE ?)"
         )
         args.extend([like, like, like])
+    if teacher_name:
+        # Scope to one teacher's reports. Rows where the join produced no
+        # report (r.id IS NULL) are excluded — they couldn't be theirs anyway.
+        where.append("(r.draft_content::jsonb)->'header'->>'teacher_name' = ?")
+        args.append(teacher_name)
 
     where_sql = " AND ".join(where)
 
@@ -1352,11 +1383,18 @@ async def generate_all_reports(background_tasks: BackgroundTasks, month: str | N
 
 
 @router.get("/escalated")
-async def list_escalated():
+async def list_escalated(teacher_name: str | None = None):
     db = await get_db()
     try:
+        clauses = ["status='escalated'", "deleted_at IS NULL"]
+        params: list = []
+        if teacher_name:
+            clauses.append("(draft_content::jsonb)->'header'->>'teacher_name' = ?")
+            params.append(teacher_name)
+        where = " AND ".join(clauses)
         async with db.execute(
-            "SELECT * FROM ptm_reports WHERE status='escalated' AND deleted_at IS NULL ORDER BY updated_at DESC"
+            f"SELECT * FROM ptm_reports WHERE {where} ORDER BY updated_at DESC",
+            params,
         ) as cur:
             rows = await cur.fetchall()
         return [row_to_report(r) for r in rows]
@@ -1592,7 +1630,10 @@ async def recompute_all_risk():
 
 
 @router.get("/risk/students-at-risk")
-async def list_students_at_risk(severity: str | None = None):
+async def list_students_at_risk(
+    severity: str | None = None,
+    teacher_name: str | None = None,
+):
     db = await get_db()
     try:
         signals = await risk_service.list_active_signals(db, severity=severity)
@@ -1610,10 +1651,13 @@ async def list_students_at_risk(severity: str | None = None):
             entry["signals"].append(s)
             if risk_service.SEVERITY_RANK[s["severity"]] > risk_service.SEVERITY_RANK[entry["highest_severity"]]:
                 entry["highest_severity"] = s["severity"]
-        # Hydrate student name + subject from the most recent report
+        # Hydrate student name + subject from the most recent report. Also
+        # pull teacher_name so we can scope to one teacher when asked.
         for sid, entry in grouped.items():
             async with db.execute(
-                """SELECT student_name, subject FROM ptm_reports
+                """SELECT student_name, subject,
+                          (draft_content::jsonb)->'header'->>'teacher_name'
+                   FROM ptm_reports
                    WHERE student_id = ? AND deleted_at IS NULL
                    ORDER BY created_at DESC LIMIT 1""",
                 [sid],
@@ -1622,6 +1666,17 @@ async def list_students_at_risk(severity: str | None = None):
             if row:
                 entry["student_name"] = row[0]
                 entry["subject"] = row[1]
+                entry["_teacher_name"] = row[2]
+        # Optional teacher filter — drop students whose most-recent report
+        # belongs to someone else (or has no report at all).
+        if teacher_name:
+            grouped = {
+                sid: e for sid, e in grouped.items()
+                if e.get("_teacher_name") == teacher_name
+            }
+        # Strip the helper key before returning.
+        for e in grouped.values():
+            e.pop("_teacher_name", None)
         # Sort by severity (high first), then name
         ordered = sorted(
             grouped.values(),

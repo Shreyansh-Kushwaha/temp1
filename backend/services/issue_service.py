@@ -32,6 +32,7 @@ async def list_issues(
     type_: str | None = None,
     severity: str | None = None,
     q: str | None = None,
+    teacher_name: str | None = None,
     limit: int = 200,
     offset: int = 0,
 ) -> tuple[list[dict], int]:
@@ -56,6 +57,27 @@ async def list_issues(
         like = f"%{q.strip()}%"
         where.append("(title ILIKE ? OR entity_name ILIKE ? OR description ILIKE ?)")
         args.extend([like, like, like])
+    if teacher_name:
+        # Teacher scope: only issues whose entity ties back to a report
+        # owned by this teacher. entity_type='report' matches report.id;
+        # entity_type='student' matches report.student_id (== wise_class_id).
+        # Students with no report yet won't surface for the teacher — accepted.
+        where.append(
+            "("
+            "(entity_type='report' AND entity_id IN ("
+            "  SELECT id FROM ptm_reports"
+            "  WHERE deleted_at IS NULL"
+            "  AND (draft_content::jsonb)->'header'->>'teacher_name' = ?"
+            "))"
+            " OR "
+            "(entity_type='student' AND entity_id IN ("
+            "  SELECT DISTINCT student_id FROM ptm_reports"
+            "  WHERE deleted_at IS NULL"
+            "  AND (draft_content::jsonb)->'header'->>'teacher_name' = ?"
+            "))"
+            ")"
+        )
+        args.extend([teacher_name, teacher_name])
 
     where_sql = " AND ".join(where)
     db = await get_db()

@@ -54,6 +54,9 @@ export default function PendingPage() {
   const [selectedTeacher, setSelectedTeacher] = useState<string>("");
   const [isAdminUser, setIsAdminUser] = useState(false);
   const [scopedTeacher, setScopedTeacher] = useState<string | null>(null);
+  // Gate the first fetch on the auth read so teachers never get the
+  // "no filter → all reports" call before selectedTeacher is set.
+  const [authResolved, setAuthResolved] = useState(false);
   const toast = useToast();
 
   useEffect(() => {
@@ -67,6 +70,7 @@ export default function PendingPage() {
       setScopedTeacher(auth.teacher_name);
       setSelectedTeacher(auth.teacher_name);
     }
+    setAuthResolved(true);
   }, []);
 
   const fetchReports = useCallback(async (teacherName?: string) => {
@@ -82,7 +86,10 @@ export default function PendingPage() {
     }
   }, []);
 
-  useEffect(() => { fetchReports(selectedTeacher || undefined); }, [fetchReports, selectedTeacher]);
+  useEffect(() => {
+    if (!authResolved) return;
+    fetchReports(selectedTeacher || undefined);
+  }, [authResolved, fetchReports, selectedTeacher]);
 
   const counts = useMemo(() => ({
     total: reports.length,

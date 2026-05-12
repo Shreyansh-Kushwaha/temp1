@@ -6,6 +6,7 @@ import { AlertTriangle, CheckCircle2, Send, UserX, ChevronRight, RotateCcw, Aler
 import Navbar from "@/app/components/Navbar";
 import { type PTMReport } from "@/app/lib/mock-data";
 import { api } from "@/app/lib/api";
+import { getAuth } from "@/app/lib/auth";
 
 function formatMonth(dateStr: string) {
   return new Date(dateStr).toLocaleDateString("en-IN", { month: "long", year: "numeric" });
@@ -30,7 +31,11 @@ export default function EscalatedPage() {
     setLoading(true);
     setError(null);
     try {
-      const data = await api.escalated.list();
+      // Scope teachers to their own escalations; admin omits the filter.
+      const auth = getAuth();
+      const teacher_name =
+        auth?.role === "teacher" && auth.teacher_name ? auth.teacher_name : undefined;
+      const data = await api.escalated.list(teacher_name ? { teacher_name } : undefined);
       setReports(data);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load escalated reports");

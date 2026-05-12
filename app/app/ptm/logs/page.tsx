@@ -19,6 +19,7 @@ import {
 import Navbar from "@/app/components/Navbar";
 import ApproveModal from "@/app/components/ApproveModal";
 import { api } from "@/app/lib/api";
+import { getAuth } from "@/app/lib/auth";
 import type {
   DeliveryLogEntry,
   DeliveryLogResponse,
@@ -174,11 +175,16 @@ export default function LogsPage() {
     setRefreshing(true);
     setError(null);
     try {
+      // Scope teachers to their own delivery rows; admin omits the filter.
+      const auth = getAuth();
+      const teacher_name =
+        auth?.role === "teacher" && auth.teacher_name ? auth.teacher_name : undefined;
       const result = await api.deliveryLog.list({
         status: statusFilter !== "all" ? statusFilter : undefined,
         channel: "email",
         since: rangeToSince(rangeFilter),
         q: debouncedSearch || undefined,
+        teacher_name,
         limit: 200,
       });
       setData(result);

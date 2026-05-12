@@ -21,7 +21,7 @@ const NAV_LINKS = [
   { href: "/ptm", label: "Generate", Icon: PlusCircle },
   { href: "/ptm/pending", label: "Pending", Icon: Clock },
   { href: "/ptm/logs", label: "Logs", Icon: ScrollText },
-  { href: "/ptm/issues", label: "Issues", Icon: LifeBuoy },
+  { href: "/ptm/issues", label: "Issues", Icon: LifeBuoy, adminOnly: true },
   { href: "/ptm/escalated", label: "Escalated", Icon: AlertTriangle },
   { href: "/ptm/automation", label: "Automation", Icon: Bot },
 ];
@@ -81,6 +81,11 @@ export default function Navbar() {
     return pathname.startsWith(href);
   };
 
+  // Filter out admin-only links for teachers / signed-out states.
+  const visibleLinks = NAV_LINKS.filter(
+    (l) => !l.adminOnly || auth?.role === "admin",
+  );
+
   return (
     <>
       <nav className="sticky top-0 z-50 h-16 bg-white border-b border-[var(--ss-i-200)] shadow-[var(--ss-shadow)] flex items-center px-4 md:px-8 gap-4">
@@ -102,7 +107,7 @@ export default function Navbar() {
 
         {/* Nav links — desktop only (≥ md) */}
         <div className="hidden md:flex items-center gap-1">
-          {NAV_LINKS.map(({ href, label, Icon }) => {
+          {visibleLinks.map(({ href, label, Icon }) => {
             const active = isActive(href);
             return (
               <Link
@@ -224,7 +229,7 @@ export default function Navbar() {
             )}
 
             <nav className="flex-1 overflow-y-auto px-3 py-3">
-              {NAV_LINKS.map(({ href, label, Icon }) => {
+              {visibleLinks.map(({ href, label, Icon }) => {
                 const active = isActive(href);
                 return (
                   <Link

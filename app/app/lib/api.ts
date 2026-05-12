@@ -349,6 +349,7 @@ export const api = {
       channel?: string;
       q?: string;
       since?: string;
+      teacher_name?: string;
       limit?: number;
       offset?: number;
     }): Promise<DeliveryLogResponse> {
@@ -357,6 +358,7 @@ export const api = {
       if (params?.channel) qs.set("channel", params.channel);
       if (params?.q) qs.set("q", params.q);
       if (params?.since) qs.set("since", params.since);
+      if (params?.teacher_name) qs.set("teacher_name", params.teacher_name);
       if (params?.limit != null) qs.set("limit", String(params.limit));
       if (params?.offset != null) qs.set("offset", String(params.offset));
       const query = qs.toString() ? `?${qs}` : "";
@@ -383,6 +385,7 @@ export const api = {
       type?: string;
       severity?: string;
       q?: string;
+      teacher_name?: string;
       limit?: number;
       offset?: number;
     }): Promise<IssuesResponse> {
@@ -391,6 +394,7 @@ export const api = {
       if (params?.type) qs.set("type", params.type);
       if (params?.severity) qs.set("severity", params.severity);
       if (params?.q) qs.set("q", params.q);
+      if (params?.teacher_name) qs.set("teacher_name", params.teacher_name);
       if (params?.limit != null) qs.set("limit", String(params.limit));
       if (params?.offset != null) qs.set("offset", String(params.offset));
       const query = qs.toString() ? `?${qs}` : "";
@@ -419,9 +423,15 @@ export const api = {
       return apiFetch("/api/ptm/risk/recompute", { method: "POST" });
     },
 
-    studentsAtRisk(severity?: "low" | "medium" | "high"): Promise<StudentRiskGroup[]> {
-      const qs = severity ? `?severity=${severity}` : "";
-      return apiFetch(`/api/ptm/risk/students-at-risk${qs}`);
+    studentsAtRisk(
+      severity?: "low" | "medium" | "high",
+      teacher_name?: string,
+    ): Promise<StudentRiskGroup[]> {
+      const qs = new URLSearchParams();
+      if (severity) qs.set("severity", severity);
+      if (teacher_name) qs.set("teacher_name", teacher_name);
+      const query = qs.toString() ? `?${qs}` : "";
+      return apiFetch(`/api/ptm/risk/students-at-risk${query}`);
     },
 
     forStudent(studentId: string): Promise<RiskSignal[]> {
@@ -479,8 +489,11 @@ export const api = {
   },
 
   escalated: {
-    list(): Promise<PTMReport[]> {
-      return apiFetch<PTMReport[]>("/api/ptm/escalated");
+    list(params?: { teacher_name?: string }): Promise<PTMReport[]> {
+      const qs = new URLSearchParams();
+      if (params?.teacher_name) qs.set("teacher_name", params.teacher_name);
+      const query = qs.toString() ? `?${qs}` : "";
+      return apiFetch<PTMReport[]>(`/api/ptm/escalated${query}`);
     },
 
     override(id: string): Promise<{ status: string; delivered_via: string[] }> {

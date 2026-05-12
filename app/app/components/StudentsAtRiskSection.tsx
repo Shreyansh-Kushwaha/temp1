@@ -5,6 +5,7 @@ import { motion } from "framer-motion";
 import { AlertTriangle, RefreshCw, Loader2 } from "lucide-react";
 import type { StudentRiskGroup } from "@/app/lib/mock-data";
 import { api } from "@/app/lib/api";
+import { getAuth } from "@/app/lib/auth";
 import RiskCard from "@/app/components/RiskCard";
 
 export default function StudentsAtRiskSection() {
@@ -17,7 +18,11 @@ export default function StudentsAtRiskSection() {
     setLoading(true);
     setError(null);
     try {
-      const data = await api.risk.studentsAtRisk();
+      // Scope teachers to their own students; admin sees everyone.
+      const auth = getAuth();
+      const teacher_name =
+        auth?.role === "teacher" && auth.teacher_name ? auth.teacher_name : undefined;
+      const data = await api.risk.studentsAtRisk(undefined, teacher_name);
       setGroups(data);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load risk signals");

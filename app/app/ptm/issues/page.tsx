@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import {
   AlertOctagon,
   Check,
@@ -16,6 +17,7 @@ import {
 import Navbar from "@/app/components/Navbar";
 import { useToast } from "@/app/components/ToastProvider";
 import { api } from "@/app/lib/api";
+import { getAuth } from "@/app/lib/auth";
 import type {
   Issue,
   IssueSeverity,
@@ -110,6 +112,7 @@ function SeverityDot({ severity }: { severity: IssueSeverity }) {
 }
 
 export default function IssuesPage() {
+  const router = useRouter();
   const toast = useToast();
   const [activeType, setActiveType] = useState<string>(CATEGORIES[0].type);
   const [data, setData] = useState<IssuesResponse | null>(null);
@@ -122,6 +125,20 @@ export default function IssuesPage() {
   const [running, setRunning] = useState(false);
   const [actingId, setActingId] = useState<string | null>(null);
 
+  // Admin-only page. Teachers (or signed-out) get bounced to /ptm. The
+  // `null` initial value avoids rendering issue data before the auth check
+  // resolves on mount.
+  const [allowed, setAllowed] = useState<boolean | null>(null);
+  useEffect(() => {
+    const auth = getAuth();
+    if (auth?.role === "admin") {
+      setAllowed(true);
+    } else {
+      setAllowed(false);
+      router.replace("/ptm");
+    }
+  }, [router]);
+
   useEffect(() => {
     const t = setTimeout(() => setDebouncedSearch(search.trim()), 300);
     return () => clearTimeout(t);
@@ -132,10 +149,15 @@ export default function IssuesPage() {
     setRefreshing(true);
     setError(null);
     try {
+      // Scope teachers to issues for their own reports/students.
+      const auth = getAuth();
+      const teacher_name =
+        auth?.role === "teacher" && auth.teacher_name ? auth.teacher_name : undefined;
       const result = await api.issues.list({
         type: activeType,
         status: statusFilter !== "all" ? statusFilter : undefined,
         q: debouncedSearch || undefined,
+        teacher_name,
         limit: 200,
       });
       setData(result);
@@ -147,7 +169,10 @@ export default function IssuesPage() {
     }
   }, [activeType, statusFilter, debouncedSearch]);
 
-  useEffect(() => { fetchIssues(); }, [fetchIssues]);
+  useEffect(() => {
+    if (allowed !== true) return;
+    fetchIssues();
+  }, [allowed, fetchIssues]);
 
   const category = useMemo(
     () => CATEGORIES.find((c) => c.type === activeType) ?? CATEGORIES[0],
@@ -201,6 +226,16 @@ export default function IssuesPage() {
     } finally {
       setActingId(null);
     }
+  }
+
+  if (allowed !== true) {
+    // While the auth read resolves (or while the redirect to /ptm is in
+    // flight for a teacher), render just the chrome — no issue data.
+    return (
+      <div className="min-h-screen" style={{ background: "var(--ss-bg)" }}>
+        <Navbar />
+      </div>
+    );
   }
 
   return (
