@@ -9,6 +9,7 @@ import {
   Inbox,
   LifeBuoy,
   Mail,
+  MessageSquare,
   Play,
   RefreshCw,
   Search,
@@ -52,6 +53,13 @@ const CATEGORIES: {
             }.`;
       return { summary, opened: r.opened };
     },
+  },
+  {
+    type: "teacher_complaint",
+    label: "Teacher complaints",
+    Icon: MessageSquare,
+    description:
+      "Problems raised by teachers from their Support page. The teacher's name is shown in the entity column; click a row to see the full complaint.",
   },
 ];
 

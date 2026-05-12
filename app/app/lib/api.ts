@@ -488,6 +488,24 @@ export const api = {
     },
   },
 
+  support: {
+    createComplaint(body: {
+      teacher_name: string;
+      title: string;
+      description?: string;
+    }): Promise<{ id: string; status: IssueStatus; created_at: string }> {
+      return apiFetch("/api/ptm/support/complaints", {
+        method: "POST",
+        body: JSON.stringify(body),
+      });
+    },
+
+    listMy(teacher_name: string): Promise<Issue[]> {
+      const qs = new URLSearchParams({ teacher_name });
+      return apiFetch<Issue[]>(`/api/ptm/support/complaints?${qs}`);
+    },
+  },
+
   escalated: {
     list(params?: { teacher_name?: string }): Promise<PTMReport[]> {
       const qs = new URLSearchParams();

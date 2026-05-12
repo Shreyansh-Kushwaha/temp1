@@ -305,6 +305,97 @@ async def run_email_records_check_endpoint():
     return summary
 
 
+# ── Teacher complaints ────────────────────────────────────────────────────
+#
+# Each complaint lives as a row in ptm_issues with type='teacher_complaint'
+# so the admin Issues page already knows how to render and resolve them.
+# entity_id is left NULL (Postgres treats NULLs as distinct in the partial
+# UNIQUE index on (type, entity_id) WHERE status='open', so a teacher can
+# have multiple open complaints in flight). The teacher's identity lives in
+# entity_name + metadata.teacher_name.
+
+
+class ComplaintBody(BaseModel):
+    teacher_name: str
+    title: str
+    description: str | None = None
+
+
+@router.post("/support/complaints")
+async def create_teacher_complaint(body: ComplaintBody):
+    teacher_name = (body.teacher_name or "").strip()
+    title = (body.title or "").strip()
+    if not teacher_name:
+        raise HTTPException(status_code=400, detail="teacher_name is required")
+    if not title:
+        raise HTTPException(status_code=400, detail="title is required")
+    description = (body.description or "").strip() or None
+
+    ts = now_iso()
+    new_id = str(uuid.uuid4())
+    db = await get_db()
+    try:
+        await db.execute(
+            """INSERT INTO ptm_issues
+               (id, type, status, severity, title, description,
+                entity_type, entity_id, entity_name, metadata,
+                created_by, created_at, updated_at)
+               VALUES (?, 'teacher_complaint', 'open', 'medium', ?, ?,
+                       'teacher', NULL, ?, ?, ?, ?, ?)""",
+            [
+                new_id, title, description,
+                teacher_name,
+                json.dumps({"teacher_name": teacher_name, "raised_at": ts}),
+                teacher_name, ts, ts,
+            ],
+        )
+        await db.commit()
+    finally:
+        await db.close()
+    return {"id": new_id, "status": "open", "created_at": ts}
+
+
+@router.get("/support/complaints")
+async def list_teacher_complaints(teacher_name: str):
+    """Return one teacher's complaints (any status), newest first."""
+    teacher_name = (teacher_name or "").strip()
+    if not teacher_name:
+        raise HTTPException(status_code=400, detail="teacher_name is required")
+    db = await get_db()
+    try:
+        async with db.execute(
+            """SELECT id, type, status, severity, title, description,
+                      entity_type, entity_id, entity_name, metadata,
+                      created_by, created_at, updated_at,
+                      resolved_at, resolved_by, resolution_note
+               FROM ptm_issues
+               WHERE type='teacher_complaint' AND entity_name = ?
+               ORDER BY created_at DESC""",
+            [teacher_name],
+        ) as cur:
+            rows = await cur.fetchall()
+    finally:
+        await db.close()
+    out = []
+    for r in rows:
+        meta = r[9]
+        if isinstance(meta, str):
+            try:
+                meta = json.loads(meta)
+            except json.JSONDecodeError:
+                meta = None
+        out.append({
+            "id": r[0], "type": r[1], "status": r[2], "severity": r[3],
+            "title": r[4], "description": r[5],
+            "entity_type": r[6], "entity_id": r[7], "entity_name": r[8],
+            "metadata": meta,
+            "created_by": r[10], "created_at": r[11], "updated_at": r[12],
+            "resolved_at": r[13], "resolved_by": r[14],
+            "resolution_note": r[15],
+        })
+    return out
+
+
 class ResendBody(BaseModel):
     recipient_email: str | None = None
 

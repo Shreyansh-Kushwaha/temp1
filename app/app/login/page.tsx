@@ -14,6 +14,7 @@ import {
   GraduationCap,
   Lock,
   AlertCircle,
+  Search,
 } from "lucide-react";
 import AmbientBackground from "@/app/components/AmbientBackground";
 import { api } from "@/app/lib/api";
@@ -486,6 +487,8 @@ function IdentityDropdown({
   onChange: (v: string) => void;
 }) {
   const ref = useRef<HTMLDivElement | null>(null);
+  const searchRef = useRef<HTMLInputElement | null>(null);
+  const [query, setQuery] = useState("");
 
   useEffect(() => {
     if (!open) return;
@@ -496,6 +499,16 @@ function IdentityDropdown({
     return () => document.removeEventListener("mousedown", onDocClick);
   }, [open, onOpenChange]);
 
+  // Reset and focus the search every time the panel opens.
+  useEffect(() => {
+    if (open) {
+      setQuery("");
+      // rAF lets the panel mount before we focus.
+      const id = requestAnimationFrame(() => searchRef.current?.focus());
+      return () => cancelAnimationFrame(id);
+    }
+  }, [open]);
+
   const isAdmin = value === ADMIN_OPTION;
   const selectedLabel =
     value === ""
@@ -503,6 +516,18 @@ function IdentityDropdown({
       : isAdmin
       ? "Administrator"
       : value;
+
+  const q = query.trim().toLowerCase();
+  // Prefix match on any word in the name. "a" → Alok / Anika, not Pandit.
+  // "sha" → Alok Sharma (matches the "Sharma" word), not Akash.
+  const filteredTeachers = q
+    ? options.filter((n) =>
+        n.toLowerCase().split(/\s+/).some((w) => w.startsWith(q)),
+      )
+    : options;
+  // Same prefix rule for Administrator so typing "a" still surfaces it.
+  const showAdmin =
+    !q || "administrator".startsWith(q) || "admin".startsWith(q);
 
   return (
     <div ref={ref} className="relative">
@@ -578,41 +603,71 @@ function IdentityDropdown({
               boxShadow: "0 30px 80px rgba(0,0,0,0.55), inset 0 1px 0 rgba(255,255,255,0.08)",
             }}
           >
-            <div className="max-h-[260px] overflow-y-auto py-1.5">
-              <DropdownItem
-                accent
-                onClick={() => {
-                  onChange(ADMIN_OPTION);
-                  onOpenChange(false);
-                }}
-                selected={value === ADMIN_OPTION}
-              >
-                <span
-                  className="w-7 h-7 rounded-full flex items-center justify-center"
-                  style={{
-                    background: "linear-gradient(135deg, #FF6B1F, #C24808)",
-                    boxShadow: "0 0 14px rgba(255,107,31,0.55)",
+            {/* Search — type to filter the teacher list. */}
+            <div
+              className="px-2.5 pt-2.5 pb-2 border-b border-white/5 sticky top-0 z-10"
+              style={{ background: "rgba(20, 14, 32, 0.95)" }}
+            >
+              <div className="relative flex items-center">
+                <Search size={13} className="absolute left-3 text-white/40" />
+                <input
+                  ref={searchRef}
+                  type="text"
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Escape") {
+                      e.stopPropagation();
+                      onOpenChange(false);
+                    } else if (e.key === "Enter" && filteredTeachers.length === 1) {
+                      e.preventDefault();
+                      onChange(filteredTeachers[0]);
+                      onOpenChange(false);
+                    }
                   }}
-                >
-                  <Shield size={12} className="text-white" />
-                </span>
-                <span className="flex-1 min-w-0">
-                  <p
-                    className="text-[13px] font-bold text-white truncate"
-                    style={{ fontFamily: "var(--font-jakarta)" }}
-                  >
-                    Administrator
-                  </p>
-                  <p className="text-[10px] text-white/45">
-                    All teachers · all reports
-                  </p>
-                </span>
-                <span className="text-[9px] font-bold uppercase tracking-widest px-1.5 py-0.5 rounded-full bg-[var(--ss-o-500)]/15 text-[var(--ss-o-300)] border border-[var(--ss-o-500)]/40 shrink-0">
-                  Admin
-                </span>
-              </DropdownItem>
+                  placeholder="Type a teacher name…"
+                  className="w-full pl-8 pr-2.5 py-2 rounded-xl bg-white/[0.05] border border-white/10 text-[13px] text-white placeholder:text-white/35 focus:outline-none focus:border-[var(--ss-o-400)]/50 focus:bg-white/[0.08] transition-colors"
+                />
+              </div>
+            </div>
 
-              {options.length > 0 && (
+            <div className="max-h-[260px] overflow-y-auto py-1.5">
+              {showAdmin && (
+                <DropdownItem
+                  accent
+                  onClick={() => {
+                    onChange(ADMIN_OPTION);
+                    onOpenChange(false);
+                  }}
+                  selected={value === ADMIN_OPTION}
+                >
+                  <span
+                    className="w-7 h-7 rounded-full flex items-center justify-center"
+                    style={{
+                      background: "linear-gradient(135deg, #FF6B1F, #C24808)",
+                      boxShadow: "0 0 14px rgba(255,107,31,0.55)",
+                    }}
+                  >
+                    <Shield size={12} className="text-white" />
+                  </span>
+                  <span className="flex-1 min-w-0">
+                    <p
+                      className="text-[13px] font-bold text-white truncate"
+                      style={{ fontFamily: "var(--font-jakarta)" }}
+                    >
+                      Administrator
+                    </p>
+                    <p className="text-[10px] text-white/45">
+                      All teachers · all reports
+                    </p>
+                  </span>
+                  <span className="text-[9px] font-bold uppercase tracking-widest px-1.5 py-0.5 rounded-full bg-[var(--ss-o-500)]/15 text-[var(--ss-o-300)] border border-[var(--ss-o-500)]/40 shrink-0">
+                    Admin
+                  </span>
+                </DropdownItem>
+              )}
+
+              {filteredTeachers.length > 0 && (
                 <div className="px-3 py-1.5 mt-1">
                   <span className="text-[9px] font-bold uppercase tracking-[0.2em] text-white/35">
                     Teachers
@@ -632,7 +687,13 @@ function IdentityDropdown({
                 </div>
               )}
 
-              {options.map((name) => (
+              {!loading && options.length > 0 && filteredTeachers.length === 0 && !showAdmin && (
+                <div className="px-3 py-3 text-[12px] text-white/45">
+                  No match for <span className="text-white/70 font-semibold">&ldquo;{query}&rdquo;</span>.
+                </div>
+              )}
+
+              {filteredTeachers.map((name) => (
                 <DropdownItem
                   key={name}
                   onClick={() => {
@@ -653,7 +714,7 @@ function IdentityDropdown({
                     className="flex-1 text-[13px] font-semibold text-white/85 truncate"
                     style={{ fontFamily: "var(--font-jakarta)" }}
                   >
-                    {name}
+                    <Highlight text={name} query={q} />
                   </p>
                 </DropdownItem>
               ))}
@@ -703,4 +764,21 @@ function initialsOf(name: string): string {
     .map((w) => w[0])
     .join("")
     .toUpperCase();
+}
+
+function Highlight({ text, query }: { text: string; query: string }) {
+  if (!query) return <>{text}</>;
+  const lower = text.toLowerCase();
+  const idx = lower.indexOf(query);
+  if (idx === -1) return <>{text}</>;
+  const before = text.slice(0, idx);
+  const match = text.slice(idx, idx + query.length);
+  const after = text.slice(idx + query.length);
+  return (
+    <>
+      {before}
+      <span className="text-[var(--ss-o-300)] font-bold">{match}</span>
+      {after}
+    </>
+  );
 }

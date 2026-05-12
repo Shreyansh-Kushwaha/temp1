@@ -12,16 +12,26 @@ import {
   Bot,
   ScrollText,
   LifeBuoy,
+  MessageSquare,
   Menu,
   X,
 } from "lucide-react";
 import { getAuth, clearAuth, type AuthState } from "@/app/lib/auth";
 
-const NAV_LINKS = [
+type NavLink = {
+  href: string;
+  label: string;
+  Icon: typeof PlusCircle;
+  adminOnly?: boolean;
+  teacherOnly?: boolean;
+};
+
+const NAV_LINKS: NavLink[] = [
   { href: "/ptm", label: "Generate", Icon: PlusCircle },
   { href: "/ptm/pending", label: "Pending", Icon: Clock },
   { href: "/ptm/logs", label: "Logs", Icon: ScrollText },
   { href: "/ptm/issues", label: "Issues", Icon: LifeBuoy, adminOnly: true },
+  { href: "/ptm/support", label: "Support", Icon: MessageSquare, teacherOnly: true },
   { href: "/ptm/escalated", label: "Escalated", Icon: AlertTriangle },
   { href: "/ptm/automation", label: "Automation", Icon: Bot },
 ];
@@ -81,10 +91,13 @@ export default function Navbar() {
     return pathname.startsWith(href);
   };
 
-  // Filter out admin-only links for teachers / signed-out states.
-  const visibleLinks = NAV_LINKS.filter(
-    (l) => !l.adminOnly || auth?.role === "admin",
-  );
+  // Show neutral links to everyone, admin-only links only to admins, and
+  // teacher-only links only to teachers. Signed-out users see neutral only.
+  const visibleLinks = NAV_LINKS.filter((l) => {
+    if (l.adminOnly) return auth?.role === "admin";
+    if (l.teacherOnly) return auth?.role === "teacher";
+    return true;
+  });
 
   return (
     <>
